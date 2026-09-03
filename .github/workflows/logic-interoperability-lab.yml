@@ -20,3 +20,5 @@ jobs:
         run: swift --version
       - name: Build
         run: swift build
+      - name: Shell syntax
+        run: bash -n Scripts/*.sh
