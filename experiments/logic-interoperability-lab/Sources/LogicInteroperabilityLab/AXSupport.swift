@@ -78,8 +78,26 @@ enum AXReader {
         return nil
     }
 
+    static func doubleValue(_ element: AXUIElement, attribute: String = kAXValueAttribute) -> Double? {
+        guard let raw = copyAttribute(element, attribute) else { return nil }
+        if let number = raw as? NSNumber { return number.doubleValue }
+        if let string = raw as? String { return Double(string) }
+        return nil
+    }
+
     static func valueDescription(_ element: AXUIElement) -> String? {
         simpleValue(element, attribute: "AXValueDescription")
+    }
+
+    static func isAttributeSettable(_ element: AXUIElement, _ attribute: String) -> Bool {
+        var settable = DarwinBoolean(false)
+        let error = AXUIElementIsAttributeSettable(element, attribute as CFString, &settable)
+        return error == .success && settable.boolValue
+    }
+
+    @discardableResult
+    static func setNumber(_ element: AXUIElement, _ value: Double, attribute: String = kAXValueAttribute) -> AXError {
+        AXUIElementSetAttributeValue(element, attribute as CFString, NSNumber(value: value))
     }
 
     static func summary(_ element: AXUIElement) -> AXElementSummary {
