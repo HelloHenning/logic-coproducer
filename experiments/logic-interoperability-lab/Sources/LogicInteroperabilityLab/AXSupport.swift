@@ -28,6 +28,18 @@ struct AXMatch {
     let summary: AXElementSummary
 }
 
+private struct AXElementIdentity: Hashable {
+    let element: AXUIElement
+
+    static func == (lhs: AXElementIdentity, rhs: AXElementIdentity) -> Bool {
+        CFEqual(lhs.element, rhs.element)
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(CFHash(element))
+    }
+}
+
 enum AXReader {
     // Newer Swift/macOS SDKs import the AX attribute constants as String.
     // Keep that type at our boundary and bridge only for the C API call.
@@ -68,7 +80,10 @@ enum AXReader {
     }
 
     static func children(_ element: AXUIElement) -> [AXUIElement] {
-        elements(element, kAXChildrenAttribute)
+        // Logic can transiently expose an AXApplication as one of its own
+        // children. Filter direct self-links here so specialized traversals
+        // that do not use AXWalker cannot recurse forever.
+        elements(element, kAXChildrenAttribute).filter { !CFEqual($0, element) }
     }
 
     static func simpleValue(_ element: AXUIElement, attribute: String = kAXValueAttribute) -> String? {
@@ -118,6 +133,7 @@ final class AXWalker {
     let maxDepth: Int
     let maxNodes: Int
     private(set) var visitedNodes = 0
+    private var seenElements: Set<AXElementIdentity> = []
 
     init(maxDepth: Int, maxNodes: Int) {
         self.maxDepth = max(0, maxDepth)
@@ -135,10 +151,17 @@ final class AXWalker {
         return matches
     }
 
-    private func snapshot(_ element: AXUIElement, depth: Int) -> AXSnapshotNode {
-        visitedNodes += 1
-        let summary = AXReader.summary(element)
+    private func firstVisit(_ element: AXUIElement) -> Bool {
+        seenElements.insert(AXElementIdentity(element: element)).inserted
+    }
 
+    private func snapshot(_ element: AXUIElement, depth: Int) -> AXSnapshotNode {
+        let summary = AXReader.summary(element)
+        guard firstVisit(element) else {
+            return AXSnapshotNode(summary: summary, children: [])
+        }
+
+        visitedNodes += 1
         guard depth < maxDepth, visitedNodes < maxNodes else {
             return AXSnapshotNode(summary: summary, children: [])
         }
@@ -159,7 +182,7 @@ final class AXWalker {
         path: String,
         matches: inout [AXMatch]
     ) {
-        guard visitedNodes < maxNodes else { return }
+        guard visitedNodes < maxNodes, firstVisit(element) else { return }
         visitedNodes += 1
 
         let summary = AXReader.summary(element)
