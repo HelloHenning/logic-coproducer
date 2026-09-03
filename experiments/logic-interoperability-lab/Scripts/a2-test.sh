@@ -40,50 +40,55 @@ capture() {
 emergency_restore() {
   if [[ "$MUTATED" -eq 1 ]]; then
     echo "Attempting automatic restoration after interrupted/failed A2 test..." >&2
-    "$MUT" --from 62 --to 61 >"$OUT_DIR/emergency-restore.log" 2>&1 || true
+    "$MUT" --row-index 1 --from 62 --to 61 >"$OUT_DIR/emergency-restore.log" 2>&1 || true
   fi
 }
 trap emergency_restore EXIT INT TERM
 
 echo "Logic Co-Producer A2 — controlled one-event MIDI mutation"
 echo "Synthetic target only: channel 1, bar 1 beat 1, C#3 -> D3 -> C#3"
-echo "The script captures the complete region before/after, verifies exact collateral diff, then restores it."
+echo "The script captures and qualifies the complete region before any write, verifies the exact collateral diff, then restores it."
 echo
 
-echo "[1/7] Capturing authoritative pre-state..."
+echo "[1/8] Capturing authoritative pre-state..."
 capture pre || fail "Could not capture a clean complete pre-state. Keep the corrected channel-1 fixture selected and Event List visible."
 
-echo "[2/7] Applying one pitch change through Event List Accessibility..."
-"$MUT" --from 61 --to 62 >"$OUT_DIR/mutation.log" 2>&1 || fail "The controlled AX write did not succeed. See $OUT_DIR/mutation.log"
+echo "[2/8] Verifying pre-state exactly matches the qualified golden fixture..."
+"$A1CMP" --expected "$EXPECTED" --run1 "$OUT_DIR/pre.json" --run2 "$OUT_DIR/pre.json" --out "$OUT_DIR/pre-golden-report.json" >"$OUT_DIR/pre-golden-compare.log" 2>&1 || fail "Pre-state is not the qualified golden fixture. No MIDI was changed. See $OUT_DIR/pre-golden-compare.log"
+grep -q 'RESULT=PASS' "$OUT_DIR/pre-golden-compare.log" || fail "Pre-state golden verification did not PASS. No MIDI was changed."
+
+echo "[3/8] Applying one pitch change through Event List Accessibility..."
+"$MUT" --row-index 1 --from 61 --to 62 >"$OUT_DIR/mutation.log" 2>&1 || fail "The controlled AX write did not succeed. See $OUT_DIR/mutation.log"
 grep -q 'RESULT=WRITE_OK' "$OUT_DIR/mutation.log" || fail "The write was not independently readable immediately after mutation."
 MUTATED=1
 
-echo "[3/7] Re-reading the complete mutated region..."
+echo "[4/8] Re-reading the complete mutated region..."
 capture post || fail "Could not capture a clean complete post-mutation state."
 
-echo "[4/7] Verifying exactly one semantic field changed..."
+echo "[5/8] Verifying exactly one semantic field changed..."
 "$CMP" --pre "$OUT_DIR/pre.json" --post "$OUT_DIR/post.json" --mode mutation >"$OUT_DIR/mutation-compare.log" 2>&1 || fail "Mutation caused an unexpected canonical diff. See $OUT_DIR/mutation-compare.log"
 grep -q 'RESULT=PASS' "$OUT_DIR/mutation-compare.log" || fail "Mutation comparator did not PASS."
 
-echo "[5/7] Restoring the original C#3 pitch..."
-"$MUT" --from 62 --to 61 >"$OUT_DIR/restore.log" 2>&1 || fail "Automatic restoration write failed. See $OUT_DIR/restore.log"
+echo "[6/8] Restoring the original C#3 pitch..."
+"$MUT" --row-index 1 --from 62 --to 61 >"$OUT_DIR/restore.log" 2>&1 || fail "Automatic restoration write failed. See $OUT_DIR/restore.log"
 grep -q 'RESULT=WRITE_OK' "$OUT_DIR/restore.log" || fail "Restoration was not readable immediately after the write."
 MUTATED=0
 
-echo "[6/7] Re-reading and verifying exact restoration..."
+echo "[7/8] Re-reading and verifying exact restoration..."
 capture restored || fail "Could not capture a clean restored state."
 "$CMP" --pre "$OUT_DIR/pre.json" --post "$OUT_DIR/restored.json" --mode restore >"$OUT_DIR/restore-compare.log" 2>&1 || fail "Restored region is not identical to pre-state. See $OUT_DIR/restore-compare.log"
 
 "$A1CMP" --expected "$EXPECTED" --run1 "$OUT_DIR/pre.json" --run2 "$OUT_DIR/restored.json" --out "$OUT_DIR/golden-report.json" >"$OUT_DIR/golden-compare.log" 2>&1 || fail "Golden verification failed. See $OUT_DIR/golden-compare.log"
 grep -q 'RESULT=PASS' "$OUT_DIR/golden-compare.log" || fail "Golden verification did not PASS."
 
-echo "[7/7] Packaging evidence..."
+echo "[8/8] Packaging evidence..."
 ELAPSED=$((SECONDS - START))
 cat >"$OUT_DIR/SUMMARY.txt" <<EOF
 POC A2 controlled one-event mutation
 Elapsed: $(fmt_time "$ELAPSED")
 Target: channel 1 note at 1 1 1 1, MIDI pitch 61 -> 62 -> 61
 Pre-state complete capture: PASS
+Pre-state golden qualification before write: PASS
 Mutation write/readback: PASS
 Canonical mutation diff (one row; pitch field only): PASS
 Restoration exact equality: PASS
