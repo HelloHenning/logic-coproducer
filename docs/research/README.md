@@ -1,66 +1,101 @@
-# Research Summary
+# Research Index
 
-This directory contains curated public summaries of the project's Deep Research work. The full raw reports are not currently published here; these summaries focus on conclusions, uncertainty and build implications.
+The broad research program is complete. This directory contains curated, maintainable summaries rather than raw Deep Research transcripts.
 
-> **Important:** Research 4 is still in progress. The architecture documents in this repository are therefore preliminary synthesis, not final product specification.
+## Research sequence
 
-## Research program
+1. [Research 1 — Logic integration and authoritative state](research-1-logic-integration.md)
+2. [Research 2 — Local audio/music intelligence](research-2-local-music-intelligence.md)
+3. [Research 3 — AI routing and external reasoning](research-3-ai-routing.md)
+4. [Research 4 — Final architecture synthesis](research-4-final-synthesis.md)
+5. [Current research/build status](research-status.md)
 
-| Report | Scope | Status |
-|---|---|---|
-| [Research 1](research-1-logic-integration.md) | Logic access, control, state observation, change detection and verification | Complete |
-| [Research 2](research-2-local-music-intelligence.md) | Local audio/music intelligence on Apple Silicon | Complete |
-| [Research 3](research-3-ai-routing.md) | Local/manual/cloud reasoning architecture, privacy and provider routing | Complete |
-| Research 4 | Final synthesis, architecture, kill tests, MVP and build order | In progress |
+## What the four stages established
 
-See also [research-status.md](research-status.md).
+### 1. Logic integration
 
-## What we know before Research 4
+Logic Pro does not expose one comprehensive documented project-object API. A trustworthy companion therefore needs a hybrid observation/control plane and must qualify each executable capability separately.
 
-### 1. The product is technically plausible, but Logic integration is fragmented
+The most important unresolved interface questions are exact live stored-MIDI access and granular automation access. Event List and Automation Event List are promising but remain empirical POC hypotheses.
 
-There is no single documented public Logic object API that exposes complete live CRUD access to all tracks, regions, stored MIDI events, automation, mixer state, plug-ins and routing. A trustworthy implementation will need a hybrid adapter layer and explicit capability/provenance tracking.
+### 2. Local music/audio intelligence
 
-The mixer/control-surface plane looks substantially stronger than exact stored-MIDI access. Exact Event List MIDI read/write is therefore a critical empirical gate rather than an assumed feature.
+Most measurable work can plausibly remain local: deterministic DSP, beat/downbeat analysis, exact symbolic MIDI interpretation once events are acquired, source separation, targeted transcription, harmony evidence, structural analysis and multidimensional energy/arrangement comparison.
 
-### 2. Logic—not AI memory—must define current project facts
+Rendered audio cannot uniquely identify hidden production history, so effect/production explanations remain evidence-backed hypotheses rather than reconstructed facts.
 
-Research 1's most important product definition is that “session aware” means current relevant state is demonstrably derived from Logic at the time of reasoning/action, or marked incomplete/stale. A user manual edit must supersede any earlier AI-generated state.
+### 3. Reasoning/provider architecture
 
-### 3. Local music/audio analysis can do most measurable work
+AI should reason over current structured evidence instead of rediscovering state. Local reasoning and manual ChatGPT collaboration are normal routes; optional cloud providers remain behind capability, privacy, availability and budget gates.
 
-Research 2 found a credible local boundary for DSP, timing, symbolic MIDI understanding, source separation, useful transcription, structural analysis, basic harmony and multi-feature energy/arrangement analysis.
+All model output is normalized into a provider-neutral semantic plan. Natural-language responses never directly control Logic.
 
-The limiting factor is often epistemology: rendered audio does not uniquely identify exact production history, plug-ins, hidden sidechains or exact settings. The product should preserve evidence, hypotheses, alternatives and uncertainty.
+### 4. Final synthesis
 
-### 4. The reasoning layer should be replaceable
+Research 4 reconciled the previous reports into one recommended build architecture:
 
-Research 3 recommends a provider-independent router. Local inference is a normal route; manual ChatGPT collaboration is first-class; free or paid APIs are optional. All routes return the same versioned semantic plan before any edit can reach Logic.
+```text
+Logic
+↕
+Hybrid Logic adapters
+↕
+Authoritative state kernel
+↕
+Local analysis / artifact graph + separate creative memory
+↓
+Context selector + reasoning router
+↓
+Provider-neutral semantic plan
+↓
+Safety compiler + human preview
+↓
+Transaction engine
+↓
+Logic
+↓
+Independent verification / rollback
+```
 
-### 5. Safety is local and deterministic
+It also finalized:
 
-Natural-language output never directly controls Logic. Stable targets, scoped revisions/hashes, capability checks, protected-state rules, preview, transaction boundaries and independent post-write verification form the safety boundary.
+- factual state versus creative memory boundaries;
+- raw fact → measurement/event → hypothesis → interpretation → intent → proposed action layers;
+- dirty-domain refresh strategy;
+- stable local entity IDs and reconciliation confidence;
+- project/entity revisions plus scoped/dependency hashes;
+- conditional MIDI and automation fallback architectures;
+- capability-gated mixer/plug-in/routing behavior;
+- local analysis/cache/process architecture;
+- semantic Co-Producer Plan and safety compiler;
+- preview/apply/verify/undo transaction model;
+- the 16 architectural kill tests;
+- exact POC order;
+- the first MVP: **Authoritative MIDI Collaboration**.
 
-### 6. The next big answers come from experiments, not another broad survey
+## Research-to-build transition
 
-The most important unresolved questions are now empirical:
+No additional broad research phase is required before coding.
 
-- Can Event List Accessibility enumerate and mutate every stored MIDI event deterministically?
-- Can Automation Event List support complete point-level CRUD?
-- How much mixer/plugin/routing state can virtual Mackie Control expose bidirectionally?
-- Can saved `.logicx` snapshots be reconciled reliably with live state?
-- How well do local audio-analysis pipelines perform on the actual fanless M5 machine while Logic is open?
-- Are local and external reasoning routes musically useful on a Co-Producer-specific benchmark?
-- Is the manual ChatGPT round-trip practical enough in real use?
+The immediate task is **`LogicInteroperabilityLab`** and the first three decisive experiments:
 
-These questions are tracked in the preliminary POC plan.
+1. complete Event List MIDI read;
+2. one-event granular mutation;
+3. manual MIDI edit detection.
 
-## Evidence labels
+See:
 
-Until Research 4 finishes, public documentation uses these meanings informally:
+- [Final architecture](../architecture/overview.md)
+- [Architectural kill tests](../poc/architectural-kill-tests.md)
+- [Ordered POC plan](../poc/test-plan.md)
 
-- **Established/documented** — supported by platform/tool documentation or directly known behavior.
-- **Strong working direction** — multiple findings support the architecture, but product engineering remains.
-- **POC-gated** — plausible and important, but must be proven on the target environment.
-- **Limited** — useful only in constrained cases.
-- **Unknown** — evidence is insufficient; do not build assumptions on it.
+## Evidence policy
+
+Public documentation should keep distinguishing:
+
+- live-verified/implemented;
+- strongly supported design constraints;
+- promising but POC-dependent;
+- limited;
+- unknown/unsupported.
+
+Provider capabilities and prices are point-in-time implementation data rather than permanent architecture decisions. Model/code/checkpoint licensing must be evaluated separately when a component is selected for use or distribution.
