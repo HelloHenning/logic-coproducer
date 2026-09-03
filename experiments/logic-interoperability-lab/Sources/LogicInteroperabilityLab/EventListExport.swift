@@ -27,5 +27,9 @@ struct EventListExportDocument: Codable {
     let axRowCount: Int
     let visibleRowCount: Int
     let rowSource: String
+    let hydrationMode: String?
+    let hydrationSteps: Int?
+    let rowsWithPosition: Int
+    let rowsWithChannel: Int
     let rows: [EventListExportRow]
 }
