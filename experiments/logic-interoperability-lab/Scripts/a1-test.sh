@@ -23,37 +23,45 @@ capture_run() {
   local json_path="$2"
   local log_path="$3"
 
-  echo
-  echo "=== A1 capture run $run_number ==="
-  swift run logic-lab event-list \
+  echo "Capturing run $run_number..."
+  if ! swift run logic-lab event-list \
     --hydrate-scroll \
     --scroll-steps "$SCROLL_STEPS" \
     --max-rows 1 \
-    --out "$json_path" | tee "$log_path"
+    --out "$json_path" >"$log_path" 2>&1; then
+    echo "A1 test: capture run $run_number failed." >&2
+    tail -n 30 "$log_path" >&2
+    exit 7
+  fi
 
   if ! grep -Eq 'hydrate_scroll=end .*status_mismatches=0 .*restore=ok' "$log_path"; then
     echo "A1 test: run $run_number did not verify a clean hydration sweep and scroll restore." >&2
-    echo "See $log_path" >&2
+    tail -n 30 "$log_path" >&2
     exit 7
   fi
 
   if grep -q 'hydrate_warning=' "$log_path"; then
     echo "A1 test: run $run_number emitted a hydration warning." >&2
-    echo "See $log_path" >&2
+    tail -n 30 "$log_path" >&2
     exit 7
   fi
+
+  local position_line channel_line
+  position_line="$(grep '^rows_with_position=' "$log_path" | tail -n 1 || true)"
+  channel_line="$(grep '^rows_with_channel=' "$log_path" | tail -n 1 || true)"
+  echo "Run $run_number capture OK: ${position_line:-position coverage unavailable}; ${channel_line:-channel coverage unavailable}; scroll restore OK"
 }
 
 echo "A1 automated Event List test"
 echo "Expected manifest: $EXPECTED"
 echo "Evidence folder:   $OUT_DIR"
-echo "Prerequisite: Logic is open with the corrected golden fixture region active and Event List visible."
+echo
 
 capture_run 1 "$RUN1_JSON" "$RUN1_LOG"
 capture_run 2 "$RUN2_JSON" "$RUN2_LOG"
 
 echo
-echo "=== Exact golden + repeatability comparison ==="
+echo "Exact golden + repeatability comparison:"
 swift run logic-a1-compare \
   --expected "$EXPECTED" \
   --run1 "$RUN1_JSON" \
