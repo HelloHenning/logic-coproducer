@@ -7,6 +7,7 @@ Broad research is complete and the repository is now in the **architecture → e
 - [Vision](vision.md)
 - [Design principles](principles.md)
 - [Final architecture overview](architecture/overview.md)
+- [Architecture decision table](architecture/decision-table.md)
 - [Research 4 final synthesis](research/research-4-final-synthesis.md)
 - [Architectural kill tests](poc/architectural-kill-tests.md)
 - [Ordered proof-of-concept plan](poc/test-plan.md)
@@ -26,6 +27,7 @@ The repository publishes curated summaries rather than raw research transcripts.
 ## Architecture
 
 - [Overview](architecture/overview.md)
+- [Decision table](architecture/decision-table.md)
 - [Authoritative Logic state and synchronization](architecture/logic-state.md)
 - [Music/audio analysis](architecture/music-analysis.md)
 - [Reasoning and provider routing](architecture/reasoning-routing.md)
@@ -55,7 +57,7 @@ The ADR directory separates accepted design constraints from POC-gated hypothese
 
 ## Schemas
 
-See [`../schemas/`](../schemas/) for the evolving machine-readable state/plan contracts. Schemas are intentionally not presented as finalized until the first state/transaction POCs exercise them.
+See [`../schemas/`](../schemas/) for the evolving machine-readable state/plan contracts. The schema architecture is established; concrete operation/state schemas will be added as the corresponding Logic POCs prove what can be observed and verified.
 
 ## Experiments
 
