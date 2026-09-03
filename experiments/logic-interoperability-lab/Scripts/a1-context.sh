@@ -16,18 +16,28 @@ queries=(
   "Additional Info"
 )
 
+swift build --product logic-lab >/dev/null
+LAB=".build/debug/logic-lab"
+
 {
   echo "A1 Event List context diagnostic"
-  echo "Goal: inspect Logic's Event List filter controls without changing project data or filter state."
-  echo "Keep the corrected golden region active and Event List visible."
+  echo "No project data or Event List filter state is changed."
   echo
 
   for query in "${queries[@]}"; do
     echo "=== $query ==="
-    swift run logic-lab find "$query" --depth 20 --max-nodes 50000
+    raw="$($LAB find "$query" --depth 20 --max-nodes 50000)"
+    echo "$raw" | awk '
+      /^query=/ { print; next }
+      /^\[[0-9]+\] / { path=$0; next }
+      /^  role=/ {
+        if (path != "") print path
+        print
+        path=""
+      }
+    '
     echo
   done
 } | tee "$OUT_FILE"
 
-echo
 echo "Context diagnostic saved in: $OUT_FILE"
