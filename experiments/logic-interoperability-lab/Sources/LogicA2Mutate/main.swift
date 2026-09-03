@@ -70,11 +70,10 @@ private func findEventList(_ root: AXUIElement, maxDepth: Int = 24, maxNodes: In
         guard seen.insert(identity).inserted else { continue }
         visited += 1
 
-        if AX.string(element, kAXRoleAttribute) == kAXTableRole {
-            if Set(eventListColumnIDs).isSubset(of: Set(columns(element))) {
-                print("event_list_found visited=\(visited)")
-                return element
-            }
+        if AX.string(element, kAXRoleAttribute) == kAXTableRole,
+           Set(eventListColumnIDs).isSubset(of: Set(columns(element))) {
+            print("event_list_found visited=\(visited)")
+            return element
         }
         guard depth < maxDepth else { continue }
         for child in AX.children(element).reversed() {
@@ -96,6 +95,11 @@ struct RowView {
     let numberRaw: String
     let numberDescription: String
     let valueDescription: String
+}
+
+struct IndexedRowView {
+    let index: Int
+    let view: RowView
 }
 
 private func rowView(_ row: AXUIElement) -> RowView? {
@@ -125,19 +129,91 @@ private func scrollBar(for table: AXUIElement) -> AXUIElement? {
     }
 }
 
+private func setScroll(_ bar: AXUIElement, _ value: Double) {
+    _ = AXUIElementSetAttributeValue(bar, kAXValueAttribute as CFString, NSNumber(value: value))
+    usleep(150_000)
+}
+
 private func setNumber(_ element: AXUIElement, _ value: Int) -> AXError {
     AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, NSNumber(value: value))
+}
+
+private func rowMatches(
+    _ view: RowView,
+    position: String,
+    channel: String,
+    pitch: Int,
+    velocity: String
+) -> Bool {
+    view.position == position &&
+        view.status == "Note" &&
+        view.channel == channel &&
+        view.numberRaw == String(pitch) &&
+        view.valueDescription == velocity
+}
+
+private func findTarget(
+    table: AXUIElement,
+    bar: AXUIElement?,
+    position: String,
+    channel: String,
+    pitch: Int,
+    velocity: String,
+    scrollSteps: Int
+) -> IndexedRowView? {
+    let rows = AX.elements(table, "AXRows")
+    guard !rows.isEmpty else { return nil }
+
+    var matchingScrollByIndex: [Int: Double] = [:]
+    let steps = max(1, scrollSteps)
+    let sweep: [Double]
+    if bar == nil {
+        sweep = [0.0]
+    } else {
+        sweep = (0...steps).map { Double($0) / Double(steps) }
+    }
+
+    for value in sweep {
+        if let bar { setScroll(bar, value) }
+        for (index, row) in rows.enumerated() {
+            guard let view = rowView(row) else { continue }
+            if rowMatches(view, position: position, channel: channel, pitch: pitch, velocity: velocity) {
+                matchingScrollByIndex[index] = value
+            }
+        }
+    }
+
+    guard matchingScrollByIndex.count == 1,
+          let index = matchingScrollByIndex.keys.first,
+          let targetScroll = matchingScrollByIndex[index]
+    else {
+        print("target_matches=\(matchingScrollByIndex.count)")
+        return nil
+    }
+
+    if let bar { setScroll(bar, targetScroll) }
+    let refreshedRows = AX.elements(table, "AXRows")
+    guard refreshedRows.indices.contains(index),
+          let refreshed = rowView(refreshedRows[index]),
+          rowMatches(refreshed, position: position, channel: channel, pitch: pitch, velocity: velocity)
+    else {
+        return nil
+    }
+
+    print("target_row=\(index) target_scroll=\(String(format: "%.4f", targetScroll))")
+    return IndexedRowView(index: index, view: refreshed)
 }
 
 let args = Array(CommandLine.arguments.dropFirst())
 let from = Int(option("--from", args: args) ?? "61") ?? 61
 let to = Int(option("--to", args: args) ?? "62") ?? 62
 let position = normalized(option("--position", args: args) ?? "1 1 1 1")
+let channel = option("--channel", args: args) ?? "1"
 let velocity = option("--velocity", args: args) ?? "20"
-let rowIndex = Int(option("--row-index", args: args) ?? "1") ?? 1
+let scrollSteps = Int(option("--scroll-steps", args: args) ?? "16") ?? 16
 
 print("Logic A2 controlled mutation probe")
-print("target row=\(rowIndex) position=\(position) channel=1 velocity=\(velocity) pitch=\(from)->\(to)")
+print("target position=\(position) channel=\(channel) velocity=\(velocity) pitch=\(from)->\(to)")
 
 guard AXIsProcessTrusted() else {
     fputs("Accessibility permission is unavailable.\n", stderr)
@@ -155,47 +231,34 @@ guard let table = findEventList(root) else {
     exit(5)
 }
 
+let bar = scrollBar(for: table)
 var originalScroll: Double?
-if let bar = scrollBar(for: table) {
-    if let raw = AX.copy(bar, kAXValueAttribute), let number = raw as? NSNumber {
-        originalScroll = number.doubleValue
-    }
-    _ = AXUIElementSetAttributeValue(bar, kAXValueAttribute as CFString, NSNumber(value: 0.0))
-    usleep(250_000)
+if let bar, let raw = AX.copy(bar, kAXValueAttribute), let number = raw as? NSNumber {
+    originalScroll = number.doubleValue
 }
 
 defer {
-    if let bar = scrollBar(for: table), let originalScroll {
-        _ = AXUIElementSetAttributeValue(bar, kAXValueAttribute as CFString, NSNumber(value: originalScroll))
-        usleep(100_000)
+    if let bar, let originalScroll {
+        setScroll(bar, originalScroll)
     }
 }
 
-private func targetRow(table: AXUIElement, rowIndex: Int) -> RowView? {
-    let rows = AX.elements(table, "AXRows")
-    guard rows.indices.contains(rowIndex) else { return nil }
-    return rowView(rows[rowIndex])
-}
-
-guard let target = targetRow(table: table, rowIndex: rowIndex) else {
-    fputs("Could not read target Event List row \(rowIndex).\n", stderr)
+guard let target = findTarget(
+    table: table,
+    bar: bar,
+    position: position,
+    channel: channel,
+    pitch: from,
+    velocity: velocity,
+    scrollSteps: scrollSteps
+) else {
+    fputs("Expected exactly one qualified target row after full Event List hydration sweep.\n", stderr)
     exit(6)
 }
 
-print("before position=\(target.position.debugDescription) status=\(target.status.debugDescription) channel=\(target.channel.debugDescription) number_raw=\(target.numberRaw.debugDescription) number_desc=\(target.numberDescription.debugDescription) velocity=\(target.valueDescription.debugDescription)")
+print("before row=\(target.index) position=\(target.view.position.debugDescription) status=\(target.view.status.debugDescription) channel=\(target.view.channel.debugDescription) number_raw=\(target.view.numberRaw.debugDescription) number_desc=\(target.view.numberDescription.debugDescription) velocity=\(target.view.valueDescription.debugDescription)")
 
-let identityOK = target.position == position &&
-    target.status == "Note" &&
-    target.channel == "1" &&
-    target.numberRaw == String(from) &&
-    target.valueDescription == velocity
-
-guard identityOK else {
-    fputs("Target row identity does not match the qualified pre-state; refusing to write.\n", stderr)
-    exit(6)
-}
-
-let numberElement = primary(target.cells[5])
+let numberElement = primary(target.view.cells[5])
 print("target_settable=\(AX.settable(numberElement) ? "yes" : "no")")
 guard AX.settable(numberElement) else {
     fputs("Target note-number AXValue is not settable.\n", stderr)
@@ -207,17 +270,17 @@ print("write_error=\(error.rawValue)")
 guard error == .success else { exit(8) }
 usleep(500_000)
 
-guard let changed = targetRow(table: table, rowIndex: rowIndex) else {
+let rowsAfter = AX.elements(table, "AXRows")
+guard rowsAfter.indices.contains(target.index),
+      let changed = rowView(rowsAfter[target.index])
+else {
     fputs("Write returned success, but target row could not be reread.\n", stderr)
     exit(9)
 }
-print("after position=\(changed.position.debugDescription) status=\(changed.status.debugDescription) channel=\(changed.channel.debugDescription) number_raw=\(changed.numberRaw.debugDescription) number_desc=\(changed.numberDescription.debugDescription) velocity=\(changed.valueDescription.debugDescription)")
 
-let readbackOK = changed.position == position &&
-    changed.status == "Note" &&
-    changed.channel == "1" &&
-    changed.numberRaw == String(to) &&
-    changed.valueDescription == velocity
+print("after row=\(target.index) position=\(changed.position.debugDescription) status=\(changed.status.debugDescription) channel=\(changed.channel.debugDescription) number_raw=\(changed.numberRaw.debugDescription) number_desc=\(changed.numberDescription.debugDescription) velocity=\(changed.valueDescription.debugDescription)")
+
+let readbackOK = rowMatches(changed, position: position, channel: channel, pitch: to, velocity: velocity)
 guard readbackOK else {
     fputs("Write returned success, but the target row did not read back as requested.\n", stderr)
     exit(9)
