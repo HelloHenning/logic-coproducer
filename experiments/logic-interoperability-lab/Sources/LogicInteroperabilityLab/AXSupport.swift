@@ -62,16 +62,24 @@ enum AXReader {
         return (raw as! AXUIElement)
     }
 
-    static func children(_ element: AXUIElement) -> [AXUIElement] {
-        guard let raw = copyAttribute(element, kAXChildrenAttribute) else { return [] }
+    static func elements(_ element: AXUIElement, _ attribute: String) -> [AXUIElement] {
+        guard let raw = copyAttribute(element, attribute) else { return [] }
         return raw as? [AXUIElement] ?? []
     }
 
-    static func simpleValue(_ element: AXUIElement) -> String? {
-        guard let raw = copyAttribute(element, kAXValueAttribute) else { return nil }
+    static func children(_ element: AXUIElement) -> [AXUIElement] {
+        elements(element, kAXChildrenAttribute)
+    }
+
+    static func simpleValue(_ element: AXUIElement, attribute: String = kAXValueAttribute) -> String? {
+        guard let raw = copyAttribute(element, attribute) else { return nil }
         if let string = raw as? String { return string }
         if let number = raw as? NSNumber { return number.stringValue }
         return nil
+    }
+
+    static func valueDescription(_ element: AXUIElement) -> String? {
+        simpleValue(element, attribute: "AXValueDescription")
     }
 
     static func summary(_ element: AXUIElement) -> AXElementSummary {
