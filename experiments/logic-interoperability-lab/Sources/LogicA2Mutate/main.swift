@@ -83,7 +83,7 @@ private func findEventList(_ root: AXUIElement, maxDepth: Int = 24, maxNodes: In
 
 private func primary(_ cell: AXUIElement) -> AXUIElement { AX.children(cell).first ?? cell }
 
-private struct RowView {
+struct RowView {
     let row: AXUIElement
     let cells: [AXUIElement]
     let position: String
