@@ -121,10 +121,8 @@ run_exact_checkpoint() {
   local cpdir="$OUT_DIR/checkpoints/exact-$(printf '%02d' "$index")"
   mkdir -p "$cpdir"
   EXACT_CHECKS=$((EXACT_CHECKS + 1))
-  set +e
   bash "$SCRIPT_DIR/a1-test.sh" "$EXPECTED" "$cpdir" >"$cpdir/session.log" 2>&1
   local status=$?
-  set -e
   if [[ "$status" -ne 0 ]] || ! grep -q "RESULT=PASS" "$cpdir/session.log"; then
     EXACT_FAILURES=$((EXACT_FAILURES + 1))
     record_failure "Exact A1 checkpoint $index did not PASS."
