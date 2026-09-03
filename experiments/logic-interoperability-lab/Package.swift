@@ -9,7 +9,9 @@ let package = Package(
     products: [
         .executable(name: "logic-lab", targets: ["LogicInteroperabilityLab"]),
         .executable(name: "logic-fixture", targets: ["LogicFixture"]),
-        .executable(name: "logic-a1-compare", targets: ["LogicA1Compare"])
+        .executable(name: "logic-a1-compare", targets: ["LogicA1Compare"]),
+        .executable(name: "logic-a2-mutate", targets: ["LogicA2Mutate"]),
+        .executable(name: "logic-a2-compare", targets: ["LogicA2Compare"])
     ],
     targets: [
         .executableTarget(
@@ -23,6 +25,14 @@ let package = Package(
         .executableTarget(
             name: "LogicA1Compare",
             path: "Sources/LogicA1Compare"
+        ),
+        .executableTarget(
+            name: "LogicA2Mutate",
+            path: "Sources/LogicA2Mutate"
+        ),
+        .executableTarget(
+            name: "LogicA2Compare",
+            path: "Sources/LogicA2Compare"
         )
     ]
 )
