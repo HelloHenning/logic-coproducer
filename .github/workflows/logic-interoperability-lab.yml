@@ -1,0 +1,25 @@
+name: LogicInteroperabilityLab
+
+on:
+  push:
+    paths:
+      - "experiments/logic-interoperability-lab/**"
+      - ".github/workflows/logic-interoperability-lab.yml"
+  pull_request:
+    paths:
+      - "experiments/logic-interoperability-lab/**"
+      - ".github/workflows/logic-interoperability-lab.yml"
+
+jobs:
+  build:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: experiments/logic-interoperability-lab
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Swift version
+        run: swift --version
+      - name: Build
+        run: swift build
