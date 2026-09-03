@@ -1,14 +1,11 @@
 name: LogicInteroperabilityLab
 
 on:
-  push:
-    paths:
-      - "experiments/logic-interoperability-lab/**"
-      - ".github/workflows/logic-interoperability-lab.yml"
   pull_request:
     paths:
       - "experiments/logic-interoperability-lab/**"
       - ".github/workflows/logic-interoperability-lab.yml"
+  workflow_dispatch:
 
 jobs:
   build:
