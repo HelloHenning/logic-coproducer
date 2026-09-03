@@ -1,10 +1,10 @@
 import Foundation
 
-private struct Export: Decodable {
+struct Export: Decodable {
     let rows: [Row]
 }
 
-private struct Row: Codable, Equatable {
+struct Row: Codable, Equatable {
     let index: Int
     let cellCount: Int
     let lock: String?
@@ -22,16 +22,16 @@ private struct Row: Codable, Equatable {
     let length: String?
 }
 
-private func option(_ name: String, args: [String]) -> String? {
+func option(_ name: String, args: [String]) -> String? {
     guard let index = args.firstIndex(of: name), index + 1 < args.count else { return nil }
     return args[index + 1]
 }
 
-private func load(_ path: String) throws -> Export {
+func load(_ path: String) throws -> Export {
     try JSONDecoder().decode(Export.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
 }
 
-private func normalized(_ value: String?) -> String {
+func normalized(_ value: String?) -> String {
     (value ?? "").split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
 }
 
@@ -97,8 +97,7 @@ guard targetIdentityOK else {
     exit(7)
 }
 
-var expected = a
-// Row is immutable, so verify every field except number raw/description explicitly.
+// Verify every field except note number/description stayed identical.
 let unrelatedFieldsEqual =
     a.index == b.index &&
     a.cellCount == b.cellCount &&
@@ -113,8 +112,6 @@ let unrelatedFieldsEqual =
     a.valueMinimum == b.valueMinimum &&
     a.valueMaximum == b.valueMaximum &&
     a.length == b.length
-
-_ = expected
 
 guard unrelatedFieldsEqual else {
     fputs("Target row changed in fields other than note number/description.\n", stderr)
