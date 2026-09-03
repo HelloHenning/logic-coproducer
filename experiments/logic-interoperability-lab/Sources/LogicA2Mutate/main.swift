@@ -24,7 +24,11 @@ private enum AX {
         if let number = raw as? NSNumber { return number.stringValue }
         return nil
     }
-    static func description(_ element: AXUIElement) -> String? { simple(element, "AXValueDescription") }
+    static func elementDescription(_ element: AXUIElement) -> String? { string(element, kAXDescriptionAttribute) }
+    static func valueDescription(_ element: AXUIElement) -> String? { simple(element, "AXValueDescription") }
+    static func displayText(_ element: AXUIElement) -> String? {
+        elementDescription(element) ?? valueDescription(element) ?? simple(element) ?? string(element, kAXTitleAttribute) ?? string(element, kAXIdentifierAttribute)
+    }
     static func elements(_ element: AXUIElement, _ attribute: String) -> [AXUIElement] {
         copy(element, attribute) as? [AXUIElement] ?? []
     }
@@ -97,20 +101,20 @@ struct RowView {
 private func rowView(_ row: AXUIElement) -> RowView? {
     let cells = AX.children(row).filter { AX.string($0, kAXRoleAttribute) == kAXCellRole }
     guard cells.count >= 8 else { return nil }
-    let position = normalized(AX.description(primary(cells[2])) ?? AX.simple(primary(cells[2])))
-    let status = normalized(AX.string(primary(cells[3]), kAXDescriptionAttribute) ?? AX.description(primary(cells[3])) ?? AX.simple(primary(cells[3])))
+    let positionElement = primary(cells[2])
+    let statusElement = primary(cells[3])
     let channelElement = primary(cells[4])
     let numberElement = primary(cells[5])
     let valueElement = primary(cells[6])
     return RowView(
         row: row,
         cells: cells,
-        position: position,
-        status: status,
-        channel: AX.description(channelElement) ?? AX.simple(channelElement) ?? "",
+        position: normalized(AX.displayText(positionElement)),
+        status: normalized(AX.displayText(statusElement)),
+        channel: AX.valueDescription(channelElement) ?? AX.simple(channelElement) ?? "",
         numberRaw: AX.simple(numberElement) ?? "",
-        numberDescription: AX.description(numberElement) ?? "",
-        valueDescription: AX.description(valueElement) ?? AX.simple(valueElement) ?? ""
+        numberDescription: AX.valueDescription(numberElement) ?? "",
+        valueDescription: AX.valueDescription(valueElement) ?? AX.simple(valueElement) ?? ""
     )
 }
 
@@ -130,9 +134,10 @@ let from = Int(option("--from", args: args) ?? "61") ?? 61
 let to = Int(option("--to", args: args) ?? "62") ?? 62
 let position = normalized(option("--position", args: args) ?? "1 1 1 1")
 let velocity = option("--velocity", args: args) ?? "20"
+let rowIndex = Int(option("--row-index", args: args) ?? "1") ?? 1
 
 print("Logic A2 controlled mutation probe")
-print("target position=\(position) channel=1 velocity=\(velocity) pitch=\(from)->\(to)")
+print("target row=\(rowIndex) position=\(position) channel=1 velocity=\(velocity) pitch=\(from)->\(to)")
 
 guard AXIsProcessTrusted() else {
     fputs("Accessibility permission is unavailable.\n", stderr)
@@ -166,24 +171,32 @@ defer {
     }
 }
 
-func matchingRows(pitch: Int) -> [RowView] {
-    AX.elements(table, "AXRows").compactMap(rowView).filter {
-        $0.position == position &&
-        $0.status == "Note" &&
-        $0.channel == "1" &&
-        $0.numberRaw == String(pitch) &&
-        $0.valueDescription == velocity
-    }
+private func targetRow(table: AXUIElement, rowIndex: Int) -> RowView? {
+    let rows = AX.elements(table, "AXRows")
+    guard rows.indices.contains(rowIndex) else { return nil }
+    return rowView(rows[rowIndex])
 }
 
-let before = matchingRows(pitch: from)
-guard before.count == 1, let target = before.first else {
-    fputs("Expected exactly one target row before mutation; found \(before.count).\n", stderr)
+guard let target = targetRow(table: table, rowIndex: rowIndex) else {
+    fputs("Could not read target Event List row \(rowIndex).\n", stderr)
+    exit(6)
+}
+
+print("before position=\(target.position.debugDescription) status=\(target.status.debugDescription) channel=\(target.channel.debugDescription) number_raw=\(target.numberRaw.debugDescription) number_desc=\(target.numberDescription.debugDescription) velocity=\(target.valueDescription.debugDescription)")
+
+let identityOK = target.position == position &&
+    target.status == "Note" &&
+    target.channel == "1" &&
+    target.numberRaw == String(from) &&
+    target.valueDescription == velocity
+
+guard identityOK else {
+    fputs("Target row identity does not match the qualified pre-state; refusing to write.\n", stderr)
     exit(6)
 }
 
 let numberElement = primary(target.cells[5])
-print("before number_raw=\(target.numberRaw) number_desc=\(target.numberDescription) settable=\(AX.settable(numberElement) ? "yes" : "no")")
+print("target_settable=\(AX.settable(numberElement) ? "yes" : "no")")
 guard AX.settable(numberElement) else {
     fputs("Target note-number AXValue is not settable.\n", stderr)
     exit(7)
@@ -194,11 +207,20 @@ print("write_error=\(error.rawValue)")
 guard error == .success else { exit(8) }
 usleep(500_000)
 
-let after = matchingRows(pitch: to)
-guard after.count == 1, let changed = after.first else {
-    fputs("Write returned success, but exactly one changed target could not be read back; found \(after.count).\n", stderr)
+guard let changed = targetRow(table: table, rowIndex: rowIndex) else {
+    fputs("Write returned success, but target row could not be reread.\n", stderr)
+    exit(9)
+}
+print("after position=\(changed.position.debugDescription) status=\(changed.status.debugDescription) channel=\(changed.channel.debugDescription) number_raw=\(changed.numberRaw.debugDescription) number_desc=\(changed.numberDescription.debugDescription) velocity=\(changed.valueDescription.debugDescription)")
+
+let readbackOK = changed.position == position &&
+    changed.status == "Note" &&
+    changed.channel == "1" &&
+    changed.numberRaw == String(to) &&
+    changed.valueDescription == velocity
+guard readbackOK else {
+    fputs("Write returned success, but the target row did not read back as requested.\n", stderr)
     exit(9)
 }
 
-print("after number_raw=\(changed.numberRaw) number_desc=\(changed.numberDescription)")
 print("RESULT=WRITE_OK")
