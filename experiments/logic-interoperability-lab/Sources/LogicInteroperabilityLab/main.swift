@@ -11,18 +11,23 @@ Usage:
   logic-lab windows
   logic-lab focused
   logic-lab find <text> [--depth N] [--max-nodes N]
+  logic-lab event-list [--max-rows N]
   logic-lab snapshot --out PATH [--depth N] [--max-nodes N]
 
 Commands:
-  doctor    Report macOS/Logic process information and Accessibility trust.
-  windows   List Logic's AX windows and basic semantic attributes.
-  focused   Print the best available focused Logic AX element and parent chain.
-  find      Search Logic's live AX hierarchy for semantic text such as
-            "Event List", "Position", "Status", or "Channel".
-  snapshot  Write a bounded JSON snapshot of Logic's AX hierarchy.
+  doctor      Report macOS/Logic process information and Accessibility trust.
+  windows     List Logic's AX windows and basic semantic attributes.
+  focused     Print the best available focused Logic AX element and parent chain.
+  find        Search Logic's live AX hierarchy for semantic text such as
+              "Event List", "Position", "Status", or "Channel".
+  event-list  Locate Logic's Event List table, compare AX row collections, and
+              print a bounded read-only sample of event cells.
+  snapshot    Write a bounded JSON snapshot of Logic's AX hierarchy.
 
 This first scaffold is intentionally read-only. It does not mutate Logic.
 """
+
+private let eventListColumnIDs = ["Lock", "Muted", "Position", "Status", "Ch", "Num", "Val", "Length"]
 
 private func option(_ name: String, in args: [String]) -> String? {
     guard let index = args.firstIndex(of: name), index + 1 < args.count else { return nil }
@@ -171,6 +176,126 @@ private func find(args: [String]) {
     }
 }
 
+private func columnIdentifiers(_ table: AXUIElement) -> [String] {
+    let directColumns = AXReader.elements(table, "AXColumns")
+    let columns = directColumns.isEmpty
+        ? AXReader.children(table).filter { AXReader.string($0, kAXRoleAttribute) == kAXColumnRole }
+        : directColumns
+    return columns.compactMap { AXReader.string($0, kAXIdentifierAttribute) }
+}
+
+private func findEventListTable(
+    _ element: AXUIElement,
+    depth: Int,
+    maxDepth: Int,
+    visited: inout Int,
+    maxNodes: Int
+) -> AXUIElement? {
+    guard visited < maxNodes else { return nil }
+    visited += 1
+
+    if AXReader.string(element, kAXRoleAttribute) == kAXTableRole {
+        let identifiers = Set(columnIdentifiers(element))
+        if Set(eventListColumnIDs).isSubset(of: identifiers) {
+            return element
+        }
+    }
+
+    guard depth < maxDepth else { return nil }
+    for child in AXReader.children(element) {
+        if let found = findEventListTable(
+            child,
+            depth: depth + 1,
+            maxDepth: maxDepth,
+            visited: &visited,
+            maxNodes: maxNodes
+        ) {
+            return found
+        }
+    }
+    return nil
+}
+
+private func primaryElement(in cell: AXUIElement) -> AXUIElement {
+    AXReader.children(cell).first ?? cell
+}
+
+private func displayText(for cell: AXUIElement) -> String? {
+    let element = primaryElement(in: cell)
+    let summary = AXReader.summary(element)
+    return summary.elementDescription
+        ?? AXReader.valueDescription(element)
+        ?? summary.value
+        ?? summary.title
+        ?? summary.identifier
+}
+
+private func diagnosticValue(for cell: AXUIElement) -> (raw: String?, described: String?, min: String?, max: String?) {
+    let element = primaryElement(in: cell)
+    return (
+        AXReader.simpleValue(element),
+        AXReader.valueDescription(element),
+        AXReader.simpleValue(element, attribute: "AXMinValue"),
+        AXReader.simpleValue(element, attribute: "AXMaxValue")
+    )
+}
+
+private func eventList(args: [String]) {
+    requireAccessibility()
+    let logic = requireLogic()
+    let maxRows = max(1, intOption("--max-rows", in: args, default: 40))
+
+    var visited = 0
+    guard let table = findEventListTable(
+        logic.axApplication,
+        depth: 0,
+        maxDepth: 20,
+        visited: &visited,
+        maxNodes: 50_000
+    ) else {
+        print("Event List AX table not found. Keep the Event List open and retry.")
+        return
+    }
+
+    let childRows = AXReader.children(table).filter { AXReader.string($0, kAXRoleAttribute) == kAXRowRole }
+    let axRows = AXReader.elements(table, "AXRows")
+    let visibleRows = AXReader.elements(table, "AXVisibleRows")
+    let columns = columnIdentifiers(table)
+    let rows = axRows.isEmpty ? childRows : axRows
+
+    print("Event List AX table found after visiting \(visited) nodes")
+    print("columns=\(columns.joined(separator: ","))")
+    print("child_rows=\(childRows.count)")
+    print("AXRows=\(axRows.count)")
+    print("AXVisibleRows=\(visibleRows.count)")
+    print("row_source=\(axRows.isEmpty ? "AXChildren" : "AXRows")")
+    print("rows_printed=\(min(rows.count, maxRows)) of \(rows.count)")
+
+    for (index, row) in rows.prefix(maxRows).enumerated() {
+        let cells = AXReader.children(row).filter { AXReader.string($0, kAXRoleAttribute) == kAXCellRole }
+        guard cells.count >= 8 else {
+            print("[\(index)] cells=\(cells.count) < expected 8")
+            continue
+        }
+
+        let position = displayText(for: cells[2]) ?? "?"
+        let status = displayText(for: cells[3]) ?? "?"
+        let channel = diagnosticValue(for: cells[4])
+        let number = diagnosticValue(for: cells[5])
+        let value = diagnosticValue(for: cells[6])
+        let length = displayText(for: cells[7]) ?? "?"
+
+        print(
+            "[\(index)] position=\(position.debugDescription) status=\(status.debugDescription) " +
+            "ch_raw=\((channel.raw ?? "?").debugDescription) ch_desc=\((channel.described ?? "nil").debugDescription) " +
+            "num_raw=\((number.raw ?? "?").debugDescription) num_desc=\((number.described ?? "nil").debugDescription) " +
+            "val_raw=\((value.raw ?? "?").debugDescription) val_desc=\((value.described ?? "nil").debugDescription) " +
+            "val_min=\((value.min ?? "nil").debugDescription) val_max=\((value.max ?? "nil").debugDescription) " +
+            "length=\(length.debugDescription)"
+        )
+    }
+}
+
 private func snapshot(args: [String]) {
     requireAccessibility()
     let logic = requireLogic()
@@ -217,6 +342,8 @@ case "focused":
     focused()
 case "find":
     find(args: rest)
+case "event-list":
+    eventList(args: rest)
 case "snapshot":
     snapshot(args: rest)
 case "help", "--help", "-h":
