@@ -1,0 +1,199 @@
+import AppKit
+import ApplicationServices
+import Darwin
+import Foundation
+
+private let usageText = """
+LogicInteroperabilityLab
+
+Usage:
+  logic-lab doctor [--prompt-accessibility]
+  logic-lab windows
+  logic-lab focused
+  logic-lab find <text> [--depth N] [--max-nodes N]
+  logic-lab snapshot --out PATH [--depth N] [--max-nodes N]
+
+Commands:
+  doctor    Report macOS/Logic process information and Accessibility trust.
+  windows   List Logic's AX windows and basic semantic attributes.
+  focused   Print the currently focused AX element and its parent chain.
+  find      Search Logic's live AX hierarchy for semantic text such as
+            \"Event List\", \"Position\", \"Status\", or \"Channel\".
+  snapshot  Write a bounded JSON snapshot of Logic's AX hierarchy.
+
+This first scaffold is intentionally read-only. It does not mutate Logic.
+"""
+
+private func option(_ name: String, in args: [String]) -> String? {
+    guard let index = args.firstIndex(of: name), index + 1 < args.count else { return nil }
+    return args[index + 1]
+}
+
+private func intOption(_ name: String, in args: [String], default defaultValue: Int) -> Int {
+    guard let raw = option(name, in: args), let value = Int(raw) else { return defaultValue }
+    return value
+}
+
+private func requireLogic() -> LogicProcess {
+    guard let logic = LogicDiscovery.runningLogic() else {
+        fputs("Logic Pro is not running. Open Logic Pro and try again.\n", stderr)
+        exit(3)
+    }
+    return logic
+}
+
+private func requireAccessibility() {
+    guard AccessibilityTrust.isTrusted(prompt: false) else {
+        fputs(
+            "Accessibility access is not currently granted. Run `logic-lab doctor --prompt-accessibility`, grant access in System Settings, then retry.\n",
+            stderr
+        )
+        exit(4)
+    }
+}
+
+private func doctor(args: [String]) {
+    let prompt = args.contains("--prompt-accessibility")
+    let trusted = AccessibilityTrust.isTrusted(prompt: prompt)
+
+    print("LogicInteroperabilityLab doctor")
+    print("macOS: \(ProcessInfo.processInfo.operatingSystemVersionString)")
+    print("architecture process: \(ProcessInfo.processInfo.processorCount) logical CPUs visible")
+    print("Accessibility trusted: \(trusted ? "yes" : "no")")
+
+    guard let logic = LogicDiscovery.runningLogic() else {
+        print("Logic Pro running: no")
+        return
+    }
+
+    print("Logic Pro running: yes")
+    print("Logic PID: \(logic.pid)")
+    print("Logic bundle id: \(logic.bundleIdentifier)")
+    print("Logic version: \(logic.version)")
+    print("Logic path: \(logic.bundlePath)")
+
+    if trusted {
+        let focusedWindow = AXReader.element(logic.axApplication, kAXFocusedWindowAttribute)
+        if let focusedWindow {
+            print("Focused window:")
+            printSummary(AXReader.summary(focusedWindow), prefix: "  ")
+        } else {
+            print("Focused window: unavailable")
+        }
+    }
+}
+
+private func windows() {
+    requireAccessibility()
+    let logic = requireLogic()
+
+    guard let raw = AXReader.copyAttribute(logic.axApplication, kAXWindowsAttribute),
+          let windows = raw as? [AXUIElement]
+    else {
+        print("No AX windows returned by Logic.")
+        return
+    }
+
+    print("Logic AX windows: \(windows.count)")
+    for (index, window) in windows.enumerated() {
+        print("[\(index)]")
+        printSummary(AXReader.summary(window), prefix: "  ")
+        print("  children=\(AXReader.children(window).count)")
+    }
+}
+
+private func focused() {
+    requireAccessibility()
+    let logic = requireLogic()
+
+    guard var current = AXReader.element(logic.axApplication, kAXFocusedUIElementAttribute) else {
+        print("Focused UI element unavailable.")
+        return
+    }
+
+    print("Focused element → parent chain")
+    for level in 0..<20 {
+        print("[\(level)]")
+        printSummary(AXReader.summary(current), prefix: "  ")
+
+        guard let parent = AXReader.element(current, kAXParentAttribute) else { break }
+        current = parent
+    }
+}
+
+private func find(args: [String]) {
+    requireAccessibility()
+    let logic = requireLogic()
+
+    guard let query = args.first, !query.hasPrefix("--") else {
+        fputs("find requires a search string, e.g. `logic-lab find \"Event List\"`.\n", stderr)
+        exit(2)
+    }
+
+    let depth = intOption("--depth", in: args, default: 14)
+    let maxNodes = intOption("--max-nodes", in: args, default: 20_000)
+    let walker = AXWalker(maxDepth: depth, maxNodes: maxNodes)
+    let matches = walker.find(logic.axApplication, query: query)
+
+    print("query=\(query.debugDescription) matches=\(matches.count) visited=\(walker.visitedNodes)")
+    for (index, match) in matches.enumerated() {
+        print("\n[\(index)] \(match.path)")
+        printSummary(match.summary, prefix: "  ")
+    }
+}
+
+private func snapshot(args: [String]) {
+    requireAccessibility()
+    let logic = requireLogic()
+
+    guard let outputPath = option("--out", in: args) else {
+        fputs("snapshot requires `--out PATH`.\n", stderr)
+        exit(2)
+    }
+
+    let depth = intOption("--depth", in: args, default: 12)
+    let maxNodes = intOption("--max-nodes", in: args, default: 20_000)
+    let walker = AXWalker(maxDepth: depth, maxNodes: maxNodes)
+    let root = walker.snapshot(logic.axApplication)
+
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+
+    do {
+        let data = try encoder.encode(root)
+        let url = URL(fileURLWithPath: outputPath)
+        try data.write(to: url, options: .atomic)
+        print("Wrote \(walker.visitedNodes) AX nodes to \(url.path)")
+    } catch {
+        fputs("Could not write snapshot: \(error)\n", stderr)
+        exit(5)
+    }
+}
+
+let args = Array(CommandLine.arguments.dropFirst())
+
+guard let command = args.first else {
+    print(usageText)
+    exit(0)
+}
+
+let rest = Array(args.dropFirst())
+
+switch command {
+case "doctor":
+    doctor(args: rest)
+case "windows":
+    windows()
+case "focused":
+    focused()
+case "find":
+    find(args: rest)
+case "snapshot":
+    snapshot(args: rest)
+case "help", "--help", "-h":
+    print(usageText)
+default:
+    fputs("Unknown command: \(command)\n\n", stderr)
+    print(usageText)
+    exit(2)
+}
