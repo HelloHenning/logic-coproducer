@@ -11,7 +11,7 @@ Usage:
   logic-lab windows
   logic-lab focused
   logic-lab find <text> [--depth N] [--max-nodes N]
-  logic-lab event-list [--max-rows N] [--out PATH]
+  logic-lab event-list [--max-rows N] [--out PATH] [--hydrate-scroll] [--scroll-steps N]
   logic-lab snapshot --out PATH [--depth N] [--max-nodes N]
 
 Commands:
@@ -21,10 +21,13 @@ Commands:
   find        Search Logic's live AX hierarchy for semantic text such as
               "Event List", "Position", "Status", or "Channel".
   event-list  Locate Logic's Event List table, compare AX row collections, print
-              a bounded read-only sample, and optionally export every row as JSON.
+              a bounded sample, and optionally export every row as JSON.
+              --hydrate-scroll temporarily moves the Event List's own scrollbar
+              to hydrate virtualized AX cells, then restores its original value.
   snapshot    Write a bounded JSON snapshot of Logic's AX hierarchy.
 
-This first scaffold is intentionally read-only. It does not mutate Logic.
+Project data mutation remains disabled. --hydrate-scroll changes only temporary
+Event List UI scroll position and restores it after capture.
 """
 
 private let eventListColumnIDs = ["Lock", "Muted", "Position", "Status", "Ch", "Num", "Val", "Length"]
@@ -285,10 +288,130 @@ private func eventListExportRow(index: Int, row: AXUIElement) -> EventListExport
     )
 }
 
+private func eventListRows(_ table: AXUIElement) -> [AXUIElement] {
+    let axRows = AXReader.elements(table, "AXRows")
+    if !axRows.isEmpty { return axRows }
+    return AXReader.children(table).filter { AXReader.string($0, kAXRoleAttribute) == kAXRowRole }
+}
+
+private func eventListScrollBar(_ table: AXUIElement) -> AXUIElement? {
+    guard let scrollArea = AXReader.element(table, kAXParentAttribute) else { return nil }
+    let bars = AXReader.children(scrollArea).filter {
+        AXReader.string($0, kAXRoleAttribute) == kAXScrollBarRole && AXReader.bool($0, kAXEnabledAttribute) != false
+    }
+    if let vertical = bars.first(where: {
+        (AXReader.string($0, "AXOrientation") ?? "").localizedCaseInsensitiveContains("vertical")
+    }) {
+        return vertical
+    }
+    return bars.first
+}
+
+private func rowDetailScore(_ row: EventListExportRow) -> Int {
+    let values: [String?] = [
+        row.lock, row.muted, row.position, row.status,
+        row.channelRaw, row.channelDescription,
+        row.numberRaw, row.numberDescription,
+        row.valueRaw, row.valueDescription,
+        row.valueMinimum, row.valueMaximum, row.length
+    ]
+    return row.cellCount + values.reduce(0) { partial, value in
+        partial + ((value?.isEmpty == false) ? 1 : 0)
+    }
+}
+
+private func mergeHydratedRows(
+    _ best: inout [EventListExportRow],
+    candidates: [EventListExportRow],
+    statusMismatchCount: inout Int
+) {
+    guard best.count == candidates.count else {
+        print("hydrate_warning=row_count_changed expected=\(best.count) observed=\(candidates.count)")
+        return
+    }
+
+    for index in best.indices {
+        if let oldStatus = best[index].status,
+           let newStatus = candidates[index].status,
+           oldStatus != newStatus {
+            statusMismatchCount += 1
+            continue
+        }
+        if rowDetailScore(candidates[index]) > rowDetailScore(best[index]) {
+            best[index] = candidates[index]
+        }
+    }
+}
+
+private func hydrateEventListRows(
+    table: AXUIElement,
+    initialRows: [EventListExportRow],
+    steps: Int
+) -> (rows: [EventListExportRow], completedSteps: Int, restored: Bool, statusMismatches: Int) {
+    guard let scrollBar = eventListScrollBar(table) else {
+        print("hydrate_scroll=unavailable reason=no_enabled_scrollbar_under_event_list")
+        return (initialRows, 0, false, 0)
+    }
+    guard AXReader.isAttributeSettable(scrollBar, kAXValueAttribute) else {
+        print("hydrate_scroll=unavailable reason=scrollbar_value_not_settable")
+        return (initialRows, 0, false, 0)
+    }
+    guard let originalValue = AXReader.doubleValue(scrollBar) else {
+        print("hydrate_scroll=unavailable reason=scrollbar_value_unreadable")
+        return (initialRows, 0, false, 0)
+    }
+
+    let stepCount = max(2, steps)
+    var best = initialRows
+    var completed = 0
+    var statusMismatches = 0
+
+    print("hydrate_scroll=begin original_value=\(originalValue) steps=\(stepCount)")
+
+    for step in 0...stepCount {
+        let target = Double(step) / Double(stepCount)
+        let error = AXReader.setNumber(scrollBar, target)
+        guard error == .success else {
+            print("hydrate_step=\(step) target=\(target) set_error=\(error.rawValue)")
+            continue
+        }
+
+        usleep(140_000)
+        let currentElements = eventListRows(table)
+        let currentRows = currentElements.enumerated().map {
+            eventListExportRow(index: $0.offset, row: $0.element)
+        }
+        mergeHydratedRows(&best, candidates: currentRows, statusMismatchCount: &statusMismatches)
+        completed += 1
+
+        let withPosition = best.filter { $0.position != nil }.count
+        let withChannel = best.filter { $0.channelDescription != nil || $0.channelRaw != nil }.count
+        let visible = AXReader.elements(table, "AXVisibleRows").count
+        print(
+            "hydrate_step=\(step)/\(stepCount) target=\(String(format: "%.4f", target)) " +
+            "AXVisibleRows=\(visible) rows_with_position=\(withPosition)/\(best.count) " +
+            "rows_with_channel=\(withChannel)/\(best.count)"
+        )
+    }
+
+    let restoreError = AXReader.setNumber(scrollBar, originalValue)
+    usleep(140_000)
+    let restoredValue = AXReader.doubleValue(scrollBar)
+    let restored = restoreError == .success && restoredValue.map { abs($0 - originalValue) < 0.002 } == true
+    print(
+        "hydrate_scroll=end completed_steps=\(completed) status_mismatches=\(statusMismatches) " +
+        "restore=\(restored ? "ok" : "failed") restored_value=\(restoredValue.map(String.init(describing:)) ?? "nil")"
+    )
+
+    return (best, completed, restored, statusMismatches)
+}
+
 private func eventList(args: [String]) {
     requireAccessibility()
     let logic = requireLogic()
     let maxRows = max(1, intOption("--max-rows", in: args, default: 40))
+    let shouldHydrate = args.contains("--hydrate-scroll")
+    let scrollSteps = max(2, intOption("--scroll-steps", in: args, default: 16))
 
     var visited = 0
     guard let table = findEventListTable(
@@ -307,7 +430,24 @@ private func eventList(args: [String]) {
     let visibleRows = AXReader.elements(table, "AXVisibleRows")
     let columns = columnIdentifiers(table)
     let rows = axRows.isEmpty ? childRows : axRows
-    let exportedRows = rows.enumerated().map { eventListExportRow(index: $0.offset, row: $0.element) }
+    let initialExportedRows = rows.enumerated().map { eventListExportRow(index: $0.offset, row: $0.element) }
+
+    var exportedRows = initialExportedRows
+    var hydrationStepsCompleted: Int? = nil
+    if shouldHydrate {
+        let hydration = hydrateEventListRows(table: table, initialRows: initialExportedRows, steps: scrollSteps)
+        exportedRows = hydration.rows
+        hydrationStepsCompleted = hydration.completedSteps
+        if hydration.statusMismatches > 0 {
+            print("hydrate_warning=status_mismatches=\(hydration.statusMismatches)")
+        }
+        if !hydration.restored {
+            print("hydrate_warning=scroll_position_restore_not_verified")
+        }
+    }
+
+    let rowsWithPosition = exportedRows.filter { $0.position != nil }.count
+    let rowsWithChannel = exportedRows.filter { $0.channelDescription != nil || $0.channelRaw != nil }.count
 
     print("Event List AX table found after visiting \(visited) nodes")
     print("columns=\(columns.joined(separator: ","))")
@@ -315,7 +455,9 @@ private func eventList(args: [String]) {
     print("AXRows=\(axRows.count)")
     print("AXVisibleRows=\(visibleRows.count)")
     print("row_source=\(axRows.isEmpty ? "AXChildren" : "AXRows")")
-    print("rows_printed=\(min(rows.count, maxRows)) of \(rows.count)")
+    print("rows_with_position=\(rowsWithPosition) of \(exportedRows.count)")
+    print("rows_with_channel=\(rowsWithChannel) of \(exportedRows.count)")
+    print("rows_printed=\(min(exportedRows.count, maxRows)) of \(exportedRows.count)")
 
     for rowData in exportedRows.prefix(maxRows) {
         guard rowData.cellCount >= 8 else {
@@ -340,7 +482,7 @@ private func eventList(args: [String]) {
 
     if let outputPath = option("--out", in: args) {
         let document = EventListExportDocument(
-            schema: "logic-coproducer-event-list-ax/1.0",
+            schema: "logic-coproducer-event-list-ax/1.1",
             capturedAt: Date(),
             logicVersion: logic.version,
             columns: columns,
@@ -348,6 +490,10 @@ private func eventList(args: [String]) {
             axRowCount: axRows.count,
             visibleRowCount: visibleRows.count,
             rowSource: axRows.isEmpty ? "AXChildren" : "AXRows",
+            hydrationMode: shouldHydrate ? "scroll-sweep" : nil,
+            hydrationSteps: hydrationStepsCompleted,
+            rowsWithPosition: rowsWithPosition,
+            rowsWithChannel: rowsWithChannel,
             rows: exportedRows
         )
 
