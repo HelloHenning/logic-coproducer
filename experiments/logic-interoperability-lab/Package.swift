@@ -42,7 +42,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "LogicMixerMatrix",
-            path: "Sources/LogicMixerMatrix"
+            path: "Sources/LogicMixerMatrixFixed"
         )
     ]
 )
