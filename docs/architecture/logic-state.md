@@ -1,86 +1,261 @@
-# Logic State and Synchronization — Preliminary
+# Authoritative Logic State and Synchronization
 
-Research 1 is the basis for this document. It focuses on the DAW boundary only; exact behavior still needs proof on the target Logic/macOS environment.
+_Status: architecture decision established; adapter coverage is POC-qualified per domain._
 
-## Access model
+## Authority rule
 
-No single interface currently appears sufficient. The working design is a capability-qualified hybrid.
+Logic Pro is the sole source of truth for current factual DAW state.
 
-| Surface | Intended role | Current status |
-|---|---|---|
-| Accessibility / AXObserver | live context, selection, track/editor/UI state; some control | useful but UI/version sensitive |
-| Event List | exact stored MIDI-event read/write | **critical POC candidate; not proven externally** |
-| Automation Event List | automation point read/write | **high-priority POC candidate** |
-| Virtual Mackie Control / CoreMIDI | transport, fader/pan/mute/solo, sends and host-exposed controls | comparatively strong |
-| `.logicx` parser | deep read-only saved snapshot and reconciliation | useful saved-state plane; never current unsaved truth |
-| Project Audio Browser + saved data | audio asset/region reconciliation | promising; offsets/transforms need POC |
-| Scripter | realtime MIDI/timing inside an inserted MIDI FX | narrow telemetry only |
-| Optional Audio Unit sensor | per-track audio/host timing telemetry | optional; does not unlock host-wide project state |
+The Co-Producer may cache normalized snapshots, but a cached value is authoritative only within its declared provenance/freshness/completeness boundary. AI conversation history and previously generated MIDI are never authoritative project state.
 
-## Observation vocabulary
+Creative memory is stored separately and may persist.
 
-Each adapter should be evaluated independently for:
+## State layers
 
-- **Observe** — read structured current state.
-- **Detect change** — know that a previously observed domain changed.
-- **Refresh** — reconstruct the authoritative current value.
-- **Mutate** — make a targeted change.
-- **Verify** — independently read back the actual result.
+Do not collapse these:
 
-A write returning “success” is not verification.
+1. **Raw Logic facts**
+2. **Derived measurements/events**
+3. **Musical hypotheses**
+4. **Interpretation**
+5. **Creative intent**
+6. **Proposed actions**
 
-## State kernel
+Only the first layer represents factual Logic state. Derived/inferred values must retain source, analyzer/model/version, time span, confidence semantics and alternatives where relevant.
 
-Every field should carry metadata such as:
+## Field-level provenance
 
-- source adapter;
-- observed timestamp;
-- live vs saved-only;
-- completeness;
-- confidence/qualification;
-- revision;
-- dirty/stale status.
+A normalized factual field should carry at least:
 
-The state kernel is a normalized local graph. It is not a replacement for Logic and must not quietly promote cached data to authoritative status.
+```json
+{
+  "value": -8.4,
+  "unit": "dB",
+  "sources": ["mcu_feedback", "ax_corroboration"],
+  "observed_at": "...",
+  "authority": "live",
+  "completeness": "complete",
+  "entity_revision": 782,
+  "dirty": false
+}
+```
 
-## Refresh strategy
+A saved-only value must explicitly say so. A hypothesis must never be represented using the same authority class as a Logic fact.
 
-Research 1's strongest synchronization recommendation is:
+## Domains
 
-> Events tell us what may have become stale; refresh tells us what is true.
+The state kernel should track dirty/freshness state independently for domains such as:
 
-Examples of dirty signals include AX notifications, MCU feedback, save/filesystem changes and optional telemetry. Before a request or transaction, refresh the minimum state domains in that operation's dependency closure.
+- transport;
+- selection/context;
+- tracks;
+- regions;
+- MIDI;
+- mixer;
+- plug-ins;
+- routing;
+- automation;
+- markers;
+- chord/signature state;
+- audio mapping.
 
-A full project rescan should not be required for every request.
+This allows one domain to be refreshed without pretending the rest of the project was re-observed.
 
-## Stable targets
+## Synchronization rule
 
-Track ordinals and display names are not sufficient identity. The Co-Producer will need its own stable references plus reconciliation against current Logic state. The exact stable-ID design remains part of Research 4 / POC work.
+> **Events tell us what may have become stale; refresh tells us what is true.**
 
-At minimum, target resolution should fail closed if the intended entity cannot be uniquely revalidated before a write.
+Change notifications are primarily invalidation hints unless the event source itself provides an authoritative new value.
 
-## MIDI uncertainty
+Examples:
 
-Logic's Event List itself can display/edit precise MIDI data, but Research 1 did not find a documented external API for arbitrary region note CRUD. The key experiment is whether Accessibility can exhaustively enumerate and manipulate the Event List, including non-visible rows, while proving completeness.
+- AX notification may mark selection/tracks/context dirty.
+- MCU/CoreMIDI feedback can directly update qualified mixer values or mark them dirty.
+- filesystem/save events allow a new saved `.logicx` snapshot.
+- optional AU/Scripter telemetry may update narrow audio/timing/MIDI-flow domains but is not a project database.
 
-A pass must include exact re-read after manual edits; AI memory is irrelevant.
+Before reasoning or mutation, the application refreshes the minimum dependency closure required by the request.
+
+## Refresh levels
+
+### Fast refresh
+
+Designed for interactive context:
+
+- Logic presence/version;
+- transport/playhead/cycle where available;
+- current selection;
+- current channel;
+- cheap mixer/control-surface values;
+- dirty flags.
+
+### Targeted refresh
+
+Normal pre-reasoning and pre-transaction safety path.
+
+Examples:
+
+- exact selected MIDI region;
+- one automation lane;
+- relevant chorus harmony;
+- two tracks plus routing for sidechain creation;
+- one plug-in's qualified parameters.
+
+### Full/deep refresh
+
+Used for:
+
+- first project attach;
+- settled save reconciliation;
+- major topology changes;
+- identity ambiguity;
+- diagnostics/regression qualification;
+- user-requested deep refresh.
+
+A large project should not require a complete deep crawl before every operation.
+
+## Project revisions
+
+Maintain a monotonic local `project_revision` whenever the normalized authoritative state recognizes a factual project mutation.
+
+The project revision is primarily:
+
+- an audit sequence;
+- an indication that something changed;
+- a request/base revision marker.
+
+It is **not** by itself a reason to reject every pending plan.
+
+## Entity revisions
+
+Every tracked entity has an `entity_revision` that changes when state relevant to that entity changes.
+
+A pan change on Track A should not automatically version an unrelated MIDI region as though its note data changed.
+
+## Hash design
+
+Use several levels:
+
+- `full_state_sha256` — audit/debug snapshot fingerprint;
+- `scope_state_sha256` — fingerprint of the complete current context used by one reasoning request;
+- per-target/precondition hashes — state required for one action;
+- dependency hashes — state an action semantically depends upon.
+
+### Example
+
+A plan is exported at project revision 1842. The user then renames an unrelated verse track and the current revision becomes 1850.
+
+If the chorus target region and all dependencies are unchanged, its action may remain eligible after warning/revalidation.
+
+If the chorus harmony, target region, required plug-in or sidechain source changed, only affected actions and their dependent actions become invalid.
+
+This gives selective validity rather than an overly conservative global-hash lock.
+
+## Co-Producer entity IDs
+
+The application assigns local opaque IDs for:
+
+- projects;
+- tracks;
+- regions;
+- MIDI events;
+- plug-in instances;
+- plug-in parameters;
+- buses;
+- sends;
+- automation lanes;
+- audio assets;
+- analysis artifacts.
+
+Display names are metadata, never primary identity.
+
+## Reconciliation rules
+
+Logic does not expose guaranteed public permanent IDs for every object, so identity may be reconstructed from multiple independent observations.
+
+### Tracks
+
+Use the strongest available identity evidence, potentially including saved-state identity, type/channel characteristics, region membership, plug-in-chain fingerprint and surrounding topology.
+
+Rename/reorder should preserve the Co-Producer ID when reconciliation is unambiguous.
+
+### Regions
+
+Use available saved identity plus track membership, content/source fingerprint, temporal properties and neighboring context.
+
+Move/rename should preserve identity. Duplication produces a new Co-Producer ID unless Logic exposes a separate unambiguous object identifier.
+
+### MIDI events
+
+Treat note/event identity conservatively. Use region-scoped local IDs tied to an observed revision and reconcile across edits only when unambiguous.
+
+Overlapping identical events can make identity ambiguous. In those cases, re-resolve by current state rather than pretending an old event identity is permanent.
+
+### Plug-in instances
+
+Combine track identity, AU/component identity, slot/order, readable state fingerprint and neighboring plug-ins.
+
+If identical instances become indistinguishable after reorder, mark identity ambiguous and fail closed for targeted mutation until refreshed/requalified.
+
+### Assets/artifacts
+
+Use strong content hashes where possible.
+
+## Identity confidence
+
+Every reconciled entity can carry:
+
+```text
+identity_confidence = high | medium | low | ambiguous
+```
+
+Mutation requires an operation-specific minimum confidence plus immediate pre-write revalidation.
+
+`ambiguous` means no mutation.
+
+## Stable-target transaction rule
+
+Immediately before any write:
+
+1. refresh required target/dependency state;
+2. resolve the stable local entity;
+3. validate precondition hashes;
+4. ensure capability is still qualified;
+5. serialize the short write/verification window;
+6. apply;
+7. independently re-read.
+
+This minimizes race conditions caused by user selection changes or project edits during the operation.
+
+## Conditional exact MIDI state
+
+Event List is the preferred live exact-MIDI source only after the interoperability POC proves completeness and reliable readback.
+
+Until then its status is **promising / POC-gated**.
+
+If complete Event List read fails, exact MIDI state falls back to controlled SMF export and saved-state corroboration where useful.
+
+See [the ordered POC plan](../poc/test-plan.md).
 
 ## Saved `.logicx` role
 
-Saved project parsing can be deep and valuable, but it is save-driven and undocumented. Use it to corroborate/reconcile saved state and extract otherwise difficult metadata. Do not mutate an open project by editing `.logicx` behind Logic.
+A `.logicx` parser is always a **read-only saved-state observer**.
 
-## Capability registry
+Parser output must carry:
 
-Especially for plug-ins, represent support per operation/instance rather than claiming generic “Logic support.” Example:
+- saved revision/time;
+- saved-only authority;
+- parser/version provenance;
+- identity/reconciliation confidence.
+
+Never modify the open Logic project package behind Logic.
+
+## Qualification principle
+
+A field/operation becomes product-supported only when the complete chain is qualified:
 
 ```text
-Plugin instance X
-  inventory read              supported
-  parameter enumeration       supported
-  semantic parameter mapping  partial
-  parameter write             supported
-  independent readback        supported
-  GUI-specific controls       unsupported
+observe → resolve → mutate (if applicable) → independently re-read → verify
 ```
 
-The reasoning layer should only be allowed to propose executable operations that the current capability registry says can be safely resolved and verified.
+The project should report capability coverage per domain/operation instead of claiming a vague percentage of "Logic support."
