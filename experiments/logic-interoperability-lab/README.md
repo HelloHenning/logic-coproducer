@@ -4,7 +4,7 @@ This is the first empirical proof-of-concept harness for the Logic Co-Producer.
 
 Its initial job is **not** to provide AI features. It is to determine exactly what Logic exposes through macOS Accessibility on the target Mac and to build evidence for POC A1: complete Event List MIDI read.
 
-The first revision is intentionally **read-only**. No command mutates Logic.
+The first revision is intentionally **read-only**. No command mutates Logic project data.
 
 ## Requirements
 
@@ -23,6 +23,47 @@ swift build
 ```
 
 Or run commands directly with `swift run logic-lab ...`.
+
+## Automated A1 golden-fixture test
+
+The preferred current A1 workflow is a one-command local runner rather than repeated manual exports.
+
+Prerequisites in Logic:
+
+1. import the corrected synthetic golden fixture;
+2. select the fixture region/track to test;
+3. keep Event List visible.
+
+Then run from this directory:
+
+```bash
+bash Scripts/a1-test.sh
+```
+
+By default the script uses:
+
+- expected manifest: `~/Desktop/logic-a1-golden-v2.expected.json`
+- evidence directory: `~/Desktop/logic-a1-test`
+
+The runner automatically performs two independent Event List captures. Each capture scrolls the Event List from top to bottom to hydrate virtualized Accessibility cells, restores the original scroll position, and saves the full observed JSON. It then runs `logic-a1-compare`, which:
+
+- detects the active MIDI channel(s);
+- reconstructs the deterministic expected Event List semantics for those channel(s);
+- compares position, status, channel and qualified MIDI fields exactly;
+- checks note lengths exactly;
+- checks full hydration coverage;
+- compares the two captures for repeatability;
+- writes a machine-readable `report.json` and prints `RESULT=PASS` or `RESULT=FAIL`.
+
+The script also saves both capture logs and rejects a capture if the hydration sweep reports a status-order mismatch, warning, or unverified scrollbar restore.
+
+To use a different manifest or evidence folder:
+
+```bash
+bash Scripts/a1-test.sh /path/to/fixture.expected.json /path/to/evidence-folder
+```
+
+This automation changes only temporary Event List UI scroll position and restores it. It does not edit MIDI or other Logic project data.
 
 ## Step 1 — environment / Accessibility check
 
@@ -110,9 +151,7 @@ Review the output before sharing it. Logic UI strings can include project, track
 
 ## POC A1 pass condition
 
-This scaffold does **not** claim POC A1 is solved.
-
-The Event List path passes only when later code can prove that, for a known golden fixture:
+The Event List path passes only when the evidence proves that, for a known golden fixture:
 
 - every relevant event is enumerated;
 - events beyond the initially visible viewport are included;
@@ -121,6 +160,8 @@ The Event List path passes only when later code can prove that, for a known gold
 - filter/editor context cannot silently hide state;
 - repeated reads are deterministic;
 - completeness is demonstrated rather than assumed.
+
+The automated runner now covers exact golden comparison, off-screen hydration, scroll restoration and repeatability for the active Event List context. Filter/context-state proof remains a separate qualification item until explicitly closed with evidence.
 
 See GitHub issues #1 and #2 and `docs/adr/0005-event-list-midi-adapter.md`.
 
