@@ -59,7 +59,7 @@ enum AXReader {
         // CFTypeRef is intentionally untyped at the API boundary. The type-ID
         // check above makes this cast qualified rather than assuming every AX
         // attribute contains another AXUIElement.
-        return raw as! AXUIElement
+        return (raw as! AXUIElement)
     }
 
     static func children(_ element: AXUIElement) -> [AXUIElement] {
