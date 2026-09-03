@@ -8,7 +8,8 @@ let package = Package(
     ],
     products: [
         .executable(name: "logic-lab", targets: ["LogicInteroperabilityLab"]),
-        .executable(name: "logic-fixture", targets: ["LogicFixture"])
+        .executable(name: "logic-fixture", targets: ["LogicFixture"]),
+        .executable(name: "logic-a1-compare", targets: ["LogicA1Compare"])
     ],
     targets: [
         .executableTarget(
@@ -18,6 +19,10 @@ let package = Package(
         .executableTarget(
             name: "LogicFixture",
             path: "Sources/LogicFixture"
+        ),
+        .executableTarget(
+            name: "LogicA1Compare",
+            path: "Sources/LogicA1Compare"
         )
     ]
 )
