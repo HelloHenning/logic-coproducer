@@ -29,26 +29,37 @@ struct AXMatch {
 }
 
 enum AXReader {
-    static func copyAttribute(_ element: AXUIElement, _ attribute: CFString) -> CFTypeRef? {
+    // Newer Swift/macOS SDKs import the AX attribute constants as String.
+    // Keep that type at our boundary and bridge only for the C API call.
+    static func copyAttribute(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
         var raw: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, attribute, &raw)
+        let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &raw)
         guard error == .success else { return nil }
         return raw
     }
 
-    static func string(_ element: AXUIElement, _ attribute: CFString) -> String? {
+    static func string(_ element: AXUIElement, _ attribute: String) -> String? {
         copyAttribute(element, attribute) as? String
     }
 
-    static func bool(_ element: AXUIElement, _ attribute: CFString) -> Bool? {
+    static func bool(_ element: AXUIElement, _ attribute: String) -> Bool? {
         guard let raw = copyAttribute(element, attribute) else { return nil }
         if let value = raw as? Bool { return value }
         if let number = raw as? NSNumber { return number.boolValue }
         return nil
     }
 
-    static func element(_ element: AXUIElement, _ attribute: CFString) -> AXUIElement? {
-        copyAttribute(element, attribute) as? AXUIElement
+    static func element(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
+        guard let raw = copyAttribute(element, attribute),
+              CFGetTypeID(raw) == AXUIElementGetTypeID()
+        else {
+            return nil
+        }
+
+        // CFTypeRef is intentionally untyped at the API boundary. The type-ID
+        // check above makes this cast qualified rather than assuming every AX
+        // attribute contains another AXUIElement.
+        return raw as! AXUIElement
     }
 
     static func children(_ element: AXUIElement) -> [AXUIElement] {
