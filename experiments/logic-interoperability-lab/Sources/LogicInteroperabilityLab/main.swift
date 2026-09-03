@@ -16,9 +16,9 @@ Usage:
 Commands:
   doctor    Report macOS/Logic process information and Accessibility trust.
   windows   List Logic's AX windows and basic semantic attributes.
-  focused   Print the currently focused AX element and its parent chain.
+  focused   Print the best available focused Logic AX element and parent chain.
   find      Search Logic's live AX hierarchy for semantic text such as
-            \"Event List\", \"Position\", \"Status\", or \"Channel\".
+            "Event List", "Position", "Status", or "Channel".
   snapshot  Write a bounded JSON snapshot of Logic's AX hierarchy.
 
 This first scaffold is intentionally read-only. It does not mutate Logic.
@@ -106,11 +106,40 @@ private func focused() {
     requireAccessibility()
     let logic = requireLogic()
 
-    guard var current = AXReader.element(logic.axApplication, kAXFocusedUIElementAttribute) else {
-        print("Focused UI element unavailable.")
+    var startingElement: AXUIElement?
+    var source = ""
+
+    // Some Logic builds do not expose AXFocusedUIElement directly on the
+    // application object. Prefer it when available, then try the system-wide
+    // focused element, and finally fall back to Logic's focused window.
+    if let appFocused = AXReader.element(logic.axApplication, kAXFocusedUIElementAttribute) {
+        startingElement = appFocused
+        source = "Logic application AXFocusedUIElement"
+    } else {
+        let systemWide = AXUIElementCreateSystemWide()
+        if let systemFocused = AXReader.element(systemWide, kAXFocusedUIElementAttribute) {
+            var focusedPID: pid_t = 0
+            if AXUIElementGetPid(systemFocused, &focusedPID) == .success, focusedPID == logic.pid {
+                startingElement = systemFocused
+                source = "system-wide AXFocusedUIElement (Logic PID)"
+            } else if focusedPID != 0 {
+                print("System-wide focused element belongs to PID \(focusedPID), not Logic PID \(logic.pid).")
+            }
+        }
+    }
+
+    if startingElement == nil,
+       let focusedWindow = AXReader.element(logic.axApplication, kAXFocusedWindowAttribute) {
+        startingElement = focusedWindow
+        source = "Logic AXFocusedWindow fallback"
+    }
+
+    guard var current = startingElement else {
+        print("No focused Logic AX element or focused Logic window is available.")
         return
     }
 
+    print("Focus source: \(source)")
     print("Focused element → parent chain")
     for level in 0..<20 {
         print("[\(level)]")
