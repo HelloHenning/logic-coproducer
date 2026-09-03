@@ -11,7 +11,7 @@ Usage:
   logic-lab windows
   logic-lab focused
   logic-lab find <text> [--depth N] [--max-nodes N]
-  logic-lab event-list [--max-rows N]
+  logic-lab event-list [--max-rows N] [--out PATH]
   logic-lab snapshot --out PATH [--depth N] [--max-nodes N]
 
 Commands:
@@ -20,8 +20,8 @@ Commands:
   focused     Print the best available focused Logic AX element and parent chain.
   find        Search Logic's live AX hierarchy for semantic text such as
               "Event List", "Position", "Status", or "Channel".
-  event-list  Locate Logic's Event List table, compare AX row collections, and
-              print a bounded read-only sample of event cells.
+  event-list  Locate Logic's Event List table, compare AX row collections, print
+              a bounded read-only sample, and optionally export every row as JSON.
   snapshot    Write a bounded JSON snapshot of Logic's AX hierarchy.
 
 This first scaffold is intentionally read-only. It does not mutate Logic.
@@ -240,6 +240,51 @@ private func diagnosticValue(for cell: AXUIElement) -> (raw: String?, described:
     )
 }
 
+private func eventListExportRow(index: Int, row: AXUIElement) -> EventListExportRow {
+    let cells = AXReader.children(row).filter { AXReader.string($0, kAXRoleAttribute) == kAXCellRole }
+    guard cells.count >= 8 else {
+        return EventListExportRow(
+            index: index,
+            cellCount: cells.count,
+            lock: nil,
+            muted: nil,
+            position: nil,
+            status: nil,
+            channelRaw: nil,
+            channelDescription: nil,
+            numberRaw: nil,
+            numberDescription: nil,
+            valueRaw: nil,
+            valueDescription: nil,
+            valueMinimum: nil,
+            valueMaximum: nil,
+            length: nil
+        )
+    }
+
+    let channel = diagnosticValue(for: cells[4])
+    let number = diagnosticValue(for: cells[5])
+    let value = diagnosticValue(for: cells[6])
+
+    return EventListExportRow(
+        index: index,
+        cellCount: cells.count,
+        lock: displayText(for: cells[0]),
+        muted: displayText(for: cells[1]),
+        position: displayText(for: cells[2]),
+        status: displayText(for: cells[3]),
+        channelRaw: channel.raw,
+        channelDescription: channel.described,
+        numberRaw: number.raw,
+        numberDescription: number.described,
+        valueRaw: value.raw,
+        valueDescription: value.described,
+        valueMinimum: value.min,
+        valueMaximum: value.max,
+        length: displayText(for: cells[7])
+    )
+}
+
 private func eventList(args: [String]) {
     requireAccessibility()
     let logic = requireLogic()
@@ -262,6 +307,7 @@ private func eventList(args: [String]) {
     let visibleRows = AXReader.elements(table, "AXVisibleRows")
     let columns = columnIdentifiers(table)
     let rows = axRows.isEmpty ? childRows : axRows
+    let exportedRows = rows.enumerated().map { eventListExportRow(index: $0.offset, row: $0.element) }
 
     print("Event List AX table found after visiting \(visited) nodes")
     print("columns=\(columns.joined(separator: ","))")
@@ -271,28 +317,53 @@ private func eventList(args: [String]) {
     print("row_source=\(axRows.isEmpty ? "AXChildren" : "AXRows")")
     print("rows_printed=\(min(rows.count, maxRows)) of \(rows.count)")
 
-    for (index, row) in rows.prefix(maxRows).enumerated() {
-        let cells = AXReader.children(row).filter { AXReader.string($0, kAXRoleAttribute) == kAXCellRole }
-        guard cells.count >= 8 else {
-            print("[\(index)] cells=\(cells.count) < expected 8")
+    for rowData in exportedRows.prefix(maxRows) {
+        guard rowData.cellCount >= 8 else {
+            print("[\(rowData.index)] cells=\(rowData.cellCount) < expected 8")
             continue
         }
 
-        let position = displayText(for: cells[2]) ?? "?"
-        let status = displayText(for: cells[3]) ?? "?"
-        let channel = diagnosticValue(for: cells[4])
-        let number = diagnosticValue(for: cells[5])
-        let value = diagnosticValue(for: cells[6])
-        let length = displayText(for: cells[7]) ?? "?"
-
         print(
-            "[\(index)] position=\(position.debugDescription) status=\(status.debugDescription) " +
-            "ch_raw=\((channel.raw ?? "?").debugDescription) ch_desc=\((channel.described ?? "nil").debugDescription) " +
-            "num_raw=\((number.raw ?? "?").debugDescription) num_desc=\((number.described ?? "nil").debugDescription) " +
-            "val_raw=\((value.raw ?? "?").debugDescription) val_desc=\((value.described ?? "nil").debugDescription) " +
-            "val_min=\((value.min ?? "nil").debugDescription) val_max=\((value.max ?? "nil").debugDescription) " +
-            "length=\(length.debugDescription)"
+            "[\(rowData.index)] position=\((rowData.position ?? "?").debugDescription) " +
+            "status=\((rowData.status ?? "?").debugDescription) " +
+            "ch_raw=\((rowData.channelRaw ?? "?").debugDescription) " +
+            "ch_desc=\((rowData.channelDescription ?? "nil").debugDescription) " +
+            "num_raw=\((rowData.numberRaw ?? "?").debugDescription) " +
+            "num_desc=\((rowData.numberDescription ?? "nil").debugDescription) " +
+            "val_raw=\((rowData.valueRaw ?? "?").debugDescription) " +
+            "val_desc=\((rowData.valueDescription ?? "nil").debugDescription) " +
+            "val_min=\((rowData.valueMinimum ?? "nil").debugDescription) " +
+            "val_max=\((rowData.valueMaximum ?? "nil").debugDescription) " +
+            "length=\((rowData.length ?? "?").debugDescription)"
         )
+    }
+
+    if let outputPath = option("--out", in: args) {
+        let document = EventListExportDocument(
+            schema: "logic-coproducer-event-list-ax/1.0",
+            capturedAt: Date(),
+            logicVersion: logic.version,
+            columns: columns,
+            childRowCount: childRows.count,
+            axRowCount: axRows.count,
+            visibleRowCount: visibleRows.count,
+            rowSource: axRows.isEmpty ? "AXChildren" : "AXRows",
+            rows: exportedRows
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        encoder.dateEncodingStrategy = .iso8601
+
+        do {
+            let data = try encoder.encode(document)
+            let url = URL(fileURLWithPath: outputPath)
+            try data.write(to: url, options: .atomic)
+            print("Wrote \(exportedRows.count) Event List rows to \(url.path)")
+        } catch {
+            fputs("Could not write Event List export: \(error)\n", stderr)
+            exit(5)
+        }
     }
 }
 
