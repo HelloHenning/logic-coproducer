@@ -11,7 +11,8 @@ let package = Package(
         .executable(name: "logic-fixture", targets: ["LogicFixture"]),
         .executable(name: "logic-a1-compare", targets: ["LogicA1Compare"]),
         .executable(name: "logic-a2-mutate", targets: ["LogicA2Mutate"]),
-        .executable(name: "logic-a2-compare", targets: ["LogicA2Compare"])
+        .executable(name: "logic-a2-compare", targets: ["LogicA2Compare"]),
+        .executable(name: "logic-control-probe", targets: ["LogicControlProbe"])
     ],
     targets: [
         .executableTarget(
@@ -33,6 +34,10 @@ let package = Package(
         .executableTarget(
             name: "LogicA2Compare",
             path: "Sources/LogicA2Compare"
+        ),
+        .executableTarget(
+            name: "LogicControlProbe",
+            path: "Sources/LogicControlProbe"
         )
     ]
 )
