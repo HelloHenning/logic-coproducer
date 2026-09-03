@@ -16,24 +16,41 @@ Completed. Main result: most measurable audio/music analysis can plausibly remai
 
 Completed. Main result: use a provider-independent router with local reasoning and manual ChatGPT collaboration as normal routes; cloud services remain optional and privacy-gated.
 
-## In progress
-
 ### Research 4 — Final synthesis and build plan
 
-Research 4 is currently synthesizing Research 1–3 into a build-ready architecture, final evidence classification, conditional MIDI/automation paths, kill-test matrix, MVP and exact POC order.
+**Completed.** Research 4 reconciled the first three investigations into one recommended architecture and an ordered proof-of-concept program.
 
-The current Research 4 plan explicitly intends to classify consequential claims as:
+Key conclusions:
 
-- proven/documented;
-- strongly supported;
-- promising but requires POC;
-- limited;
-- unresolved.
+- Logic remains the sole source of factual project truth.
+- Creative memory is separate and may persist; factual Logic state must be refreshed and verified.
+- The Logic integration remains hybrid: AX/AXObserver, virtual Mackie Control/CoreMIDI, Event Lists where proven, read-only saved `.logicx`, and optional narrow telemetry.
+- Event List MIDI and Automation Event List CRUD remain POC-gated rather than treated as solved.
+- The authoritative state kernel uses local stable IDs, provenance, completeness, dirty domains, project/entity revisions, scoped hashes and dependency preconditions.
+- External/local AI returns provider-neutral semantic Co-Producer Plans; natural-language output never directly drives Logic.
+- Preview → Apply → independent readback → Verify → Undo is a core transaction protocol.
+- Local audio/music analysis remains evidence-first and staged rather than monolithic.
+- Local reasoning and manual ChatGPT are normal reasoning routes; cloud APIs remain optional.
+- No further broad Deep Research phase is required before coding.
 
-It also explicitly distinguishes “exact MIDI is easy to understand once available” from the separate unresolved question “can authoritative live Logic MIDI be obtained and edited granularly?”
+## Current phase
+
+**Research → empirical POC transition.**
+
+The immediate next step is to build `LogicInteroperabilityLab` and test the decisive MIDI sequence:
+
+1. complete Event List read;
+2. one-event granular mutation;
+3. manual MIDI edit detection.
+
+The first MVP is **Authoritative MIDI Collaboration**. Its purpose is to prove that subsequent AI requests use the current Logic state after the user manually edits the project—not merely to prove that AI can generate MIDI.
+
+See:
+
+- [Research 4 final synthesis](research-4-final-synthesis.md)
+- [Architectural kill tests](../poc/architectural-kill-tests.md)
+- [Ordered POC plan](../poc/test-plan.md)
 
 ## Publication policy
 
-For now this repository publishes curated summaries rather than the raw research transcripts. The public documents are easier to maintain, can mark dated provider information clearly, and avoid presenting exploratory findings as final architecture.
-
-After Research 4 finishes, the summaries and architecture docs will be revised before the first coding POC begins.
+This repository publishes curated summaries rather than raw research transcripts. The summaries distinguish documented/strongly supported conclusions from POC-dependent hypotheses and dated provider information.
