@@ -47,8 +47,10 @@ enum LogicDiscovery {
 enum AccessibilityTrust {
     static func isTrusted(prompt: Bool) -> Bool {
         if prompt {
-            let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
-            let options = [key: true] as CFDictionary
+            // The public constant's string value is stable, but Swift 6 treats
+            // the imported global CFStringRef as shared mutable state. Using the
+            // documented dictionary key value avoids that concurrency warning.
+            let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
             return AXIsProcessTrustedWithOptions(options)
         }
 
