@@ -78,6 +78,7 @@ private enum GoldenA1Fixture {
 
         let offsets = [0, 1, 7, 31, 79]
         let lengths = [60, 119, 120, 239, 240, 479, 960, 1_441]
+        var lastEndByChannelPitch: [String: Int] = [:]
 
         for index in 0..<noteCount {
             let start = index * 120 + offsets[index % offsets.count]
@@ -85,15 +86,15 @@ private enum GoldenA1Fixture {
             let pitch: Int
 
             // Every 64-note block starts with two deliberately overlapping
-            // same-pitch notes on different channels. This avoids ambiguous
-            // same-channel note-off pairing while still exercising same-pitch
-            // overlap in Logic's event model.
+            // same-pitch notes on different channels. Pitch 61 is reserved
+            // from the ordinary channel-1/channel-2 pitch patterns so a later
+            // same-channel note cannot create ambiguous MIDI note-off pairing.
             if index % 64 == 0 {
                 channel = 0
-                pitch = 60
+                pitch = 61
             } else if index % 64 == 1 {
                 channel = 1
-                pitch = 60
+                pitch = 61
             } else {
                 channel = index % 4
                 pitch = 36 + ((index * 7) % 48)
@@ -104,6 +105,15 @@ private enum GoldenA1Fixture {
             if index % 64 == 0 || index % 64 == 1 {
                 length = 960
             }
+
+            let overlapKey = "\(channel):\(pitch)"
+            if let previousEnd = lastEndByChannelPitch[overlapKey] {
+                precondition(
+                    start >= previousEnd,
+                    "Fixture contains ambiguous same-channel/same-pitch overlap for \(overlapKey)"
+                )
+            }
+            lastEndByChannelPitch[overlapKey] = start + length
 
             notes.append(FixtureNote(
                 index: index,
@@ -230,7 +240,7 @@ private enum GoldenA1Fixture {
             notesAboutFixture: [
                 "Synthetic/public-safe fixture; contains no user music.",
                 "1,024 note events with deterministic pitch, velocity, channel, timing, and length.",
-                "Each 64-note block starts with overlapping pitch-60 notes on channels 1 and 2.",
+                "Each 64-note block starts with overlapping pitch-61 notes on channels 1 and 2; pitch 61 is reserved from ordinary channel-1/channel-2 notes to avoid ambiguous same-channel MIDI note-off pairing.",
                 "Includes controller, pitch-bend, channel-pressure, poly-pressure, and program-change events.",
                 "Looped/cropped Logic-region behavior and articulation-specific Logic metadata are separate later tests because SMF does not encode those Logic project semantics."
             ]
