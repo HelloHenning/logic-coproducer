@@ -41,17 +41,14 @@ enum AXReader {
     }
 
     static func bool(_ element: AXUIElement, _ attribute: CFString) -> Bool? {
-        if let value = copyAttribute(element, attribute) as? Bool {
-            return value
-        }
-        if let number = copyAttribute(element, attribute) as? NSNumber {
-            return number.boolValue
-        }
+        guard let raw = copyAttribute(element, attribute) else { return nil }
+        if let value = raw as? Bool { return value }
+        if let number = raw as? NSNumber { return number.boolValue }
         return nil
     }
 
     static func element(_ element: AXUIElement, _ attribute: CFString) -> AXUIElement? {
-        copyAttribute(element, attribute) as! AXUIElement?
+        copyAttribute(element, attribute) as? AXUIElement
     }
 
     static func children(_ element: AXUIElement) -> [AXUIElement] {
@@ -152,11 +149,13 @@ func printSummary(_ summary: AXElementSummary, prefix: String = "") {
         ("identifier", summary.identifier),
         ("description", summary.elementDescription),
         ("value", summary.value),
-        ("enabled", summary.enabled.map(String.init)),
-        ("focused", summary.focused.map(String.init))
+        ("enabled", summary.enabled.map { String($0) }),
+        ("focused", summary.focused.map { String($0) })
     ]
 
-    print(prefix + fields.compactMap { key, value in
+    let rendered = fields.compactMap { key, value in
         value.map { "\(key)=\($0.debugDescription)" }
-    }.joined(separator: "  "))
+    }.joined(separator: "  ")
+
+    print(prefix + rendered)
 }
