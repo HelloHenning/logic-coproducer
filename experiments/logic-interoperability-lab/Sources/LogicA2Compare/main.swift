@@ -39,10 +39,16 @@ let args = Array(CommandLine.arguments.dropFirst())
 guard let prePath = option("--pre", args: args),
       let postPath = option("--post", args: args)
 else {
-    fputs("Usage: logic-a2-compare --pre PRE.json --post POST.json [--mode mutation|restore]\n", stderr)
+    fputs("Usage: logic-a2-compare --pre PRE.json --post POST.json [--mode mutation|restore] [--position '1 1 1 1'] [--channel 1] [--from 61] [--to 62] [--velocity 20]\n", stderr)
     exit(2)
 }
+
 let mode = option("--mode", args: args) ?? "mutation"
+let expectedPosition = normalized(option("--position", args: args) ?? "1 1 1 1")
+let expectedChannel = option("--channel", args: args) ?? "1"
+let expectedFrom = option("--from", args: args) ?? "61"
+let expectedTo = option("--to", args: args) ?? "62"
+let expectedVelocity = option("--velocity", args: args) ?? "20"
 
 let pre: Export
 let post: Export
@@ -83,17 +89,18 @@ guard diffs.count == 1, let index = diffs.first else {
 
 let a = pre.rows[index]
 let b = post.rows[index]
+let aChannel = a.channelDescription ?? a.channelRaw
+let bChannel = b.channelDescription ?? b.channelRaw
 
-let targetIdentityOK = normalized(a.position) == "1 1 1 1" &&
-    normalized(b.position) == "1 1 1 1" &&
+let targetIdentityOK = normalized(a.position) == expectedPosition &&
+    normalized(b.position) == expectedPosition &&
     a.status == "Note" && b.status == "Note" &&
-    (a.channelDescription ?? a.channelRaw) == "1" &&
-    (b.channelDescription ?? b.channelRaw) == "1" &&
-    a.valueDescription == "20" && b.valueDescription == "20" &&
-    a.numberRaw == "61" && b.numberRaw == "62"
+    aChannel == expectedChannel && bChannel == expectedChannel &&
+    a.valueDescription == expectedVelocity && b.valueDescription == expectedVelocity &&
+    a.numberRaw == expectedFrom && b.numberRaw == expectedTo
 
 guard targetIdentityOK else {
-    fputs("The single changed row is not the intended C#3→D3 target at 1 1 1 1.\n", stderr)
+    fputs("The single changed row is not the requested target: position=\(expectedPosition) channel=\(expectedChannel) velocity=\(expectedVelocity) pitch=\(expectedFrom)->\(expectedTo).\n", stderr)
     exit(7)
 }
 
@@ -118,5 +125,5 @@ guard unrelatedFieldsEqual else {
     exit(8)
 }
 
-print("changed_row=\(index) number=\(a.numberRaw ?? "nil")->\(b.numberRaw ?? "nil") desc=\(a.numberDescription ?? "nil")->\(b.numberDescription ?? "nil")")
+print("changed_row=\(index) position=\(expectedPosition) number=\(a.numberRaw ?? "nil")->\(b.numberRaw ?? "nil") desc=\(a.numberDescription ?? "nil")->\(b.numberDescription ?? "nil")")
 print("RESULT=PASS")
