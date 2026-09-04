@@ -11,6 +11,9 @@ private let challenge: [UInt8] = [1, 2, 3, 4]
 
 private func nowISO() -> String { ISO8601DateFormatter().string(from: Date()) }
 private func hex(_ bytes: [UInt8]) -> String { bytes.map { String(format: "%02X", $0) }.joined(separator: " ") }
+private func asciiDisplay(_ bytes: [UInt8]) -> String {
+    String(bytes: bytes.map { ($0 >= 32 && $0 <= 126) ? $0 : 32 }, encoding: .ascii) ?? ""
+}
 private func option(_ name: String, args: [String]) -> String? {
     guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
     return args[i + 1]
@@ -50,6 +53,14 @@ final class BridgeState {
     var ready = false
     var shouldQuit = false
 
+    // Mackie Control main LCD is a 112-byte backing buffer: 56 bytes per row.
+    // Logic writes it with SysEx command 0x12 and an offset byte.
+    var lcdBuffer: [UInt8] = Array(repeating: 32, count: 112)
+    var lcdRevision = 0
+    var lastLCDUpdate: String?
+    var assignmentDisplayRaw: [Int] = [-1, -1]
+    var assignmentRevision = 0
+
     init(statusURL: URL, eventsURL: URL) {
         self.statusURL = statusURL
         self.eventsURL = eventsURL
@@ -74,7 +85,7 @@ final class BridgeState {
     func writeStatus() {
         func nullable<T>(_ value: T?) -> Any { value.map { $0 as Any } ?? NSNull() }
         let object: [String: Any] = [
-            "schema": "logic-coproducer-mcu-bridge-status/1.0",
+            "schema": "logic-coproducer-mcu-bridge-status/1.1",
             "generatedAt": nowISO(), "ready": ready,
             "sourceName": sourceName, "destinationName": destinationName,
             "hostPacketCount": hostPacketCount,
@@ -87,6 +98,12 @@ final class BridgeState {
             "lastRing0Value": nullable(lastRing0Value),
             "lastMute0Value": nullable(lastMute0Value),
             "lastSolo0Value": nullable(lastSolo0Value),
+            "lcdRevision": lcdRevision,
+            "lcdUpper": asciiDisplay(Array(lcdBuffer[0..<56])),
+            "lcdLower": asciiDisplay(Array(lcdBuffer[56..<112])),
+            "lastLCDUpdate": nullable(lastLCDUpdate),
+            "assignmentDisplayRaw": assignmentDisplayRaw,
+            "assignmentRevision": assignmentRevision,
             "commandAck": commandAck,
             "lastCommand": nullable(lastCommand),
             "lastHostTraffic": nullable(lastHostTraffic)
@@ -110,6 +127,17 @@ final class BridgeState {
 
     func sendSysEx(_ command: UInt8, _ params: [UInt8], _ note: String) {
         _ = send([0xF0, 0x00, 0x00, 0x66, deviceID, command] + params + [0xF7], note: note)
+    }
+
+    func pressNote(_ note: UInt8, label: String) {
+        _ = send([0x90, note, 0x7F], note: "\(label)-down")
+        _ = send([0x80, note, 0], note: "\(label)-up")
+    }
+
+    func rotateVPot(strip: Int, delta: Int) {
+        guard (0...7).contains(strip), delta != 0 else { return }
+        let mag = UInt8(min(abs(delta), 63))
+        _ = send([0xB0, UInt8(16 + strip), delta > 0 ? mag : (0x40 | mag)], note: "vpot-rotate")
     }
 
     func expectedResponse() -> [UInt8] {
@@ -144,6 +172,17 @@ final class BridgeState {
                 handshakeConfirmedCount += 1
                 sendSysEx(0x03, serial, "host-connection-confirmation")
             }
+        } else if command == 0x12 {
+            guard let first = params.first else { return }
+            let offset = Int(first)
+            guard offset < lcdBuffer.count else { return }
+            for (index, value) in params.dropFirst().enumerated() {
+                let target = offset + index
+                guard target < lcdBuffer.count else { break }
+                lcdBuffer[target] = value
+            }
+            lcdRevision += 1
+            lastLCDUpdate = nowISO()
         } else if command == 0x13 {
             sendSysEx(0x14, Array("V1.0 ".utf8), "firmware-version-reply")
         }
@@ -172,6 +211,9 @@ final class BridgeState {
                     lastFader0Raw = Int(d1) | (Int(d2) << 7); fader0Counter += 1
                 } else if kind == 0xB0 && channel == 0 && d1 == 48 {
                     lastRing0Value = Int(d2); ring0Counter += 1
+                } else if kind == 0xB0 && (channel == 0 || channel == 15) && (d1 == 74 || d1 == 75) {
+                    assignmentDisplayRaw[Int(d1 - 74)] = Int(d2)
+                    assignmentRevision += 1
                 } else if (kind == 0x80 || kind == 0x90) && channel == 0 && d1 == 16 {
                     lastMute0Value = Int(d2); mute0Counter += 1
                 } else if (kind == 0x80 || kind == 0x90) && channel == 0 && d1 == 8 {
@@ -195,23 +237,39 @@ final class BridgeState {
         case "FADER" where parts.count == 3:
             guard let strip = Int(parts[1]), (0...8).contains(strip),
                   let raw = Int(parts[2]), (0...16383).contains(raw) else { return }
-            if strip <= 7 { _ = send([0x90, UInt8(104 + strip), 0x7F], note: "fader-touch-on") }
+            if strip <= 7 { pressNote(UInt8(104 + strip), label: "fader-touch") }
             _ = send([UInt8(0xE0 + strip), UInt8(raw & 0x7F), UInt8((raw >> 7) & 0x7F)], note: "fader-position")
-            if strip <= 7 { _ = send([0x80, UInt8(104 + strip), 0], note: "fader-touch-off") }
         case "PAN" where parts.count == 3:
-            guard let strip = Int(parts[1]), (0...7).contains(strip),
-                  let delta = Int(parts[2]), delta != 0 else { return }
-            let mag = UInt8(min(abs(delta), 63))
-            _ = send([0xB0, UInt8(16 + strip), delta > 0 ? mag : (0x40 | mag)], note: "vpot-rotate")
+            guard let strip = Int(parts[1]), let delta = Int(parts[2]) else { return }
+            rotateVPot(strip: strip, delta: delta)
+        case "VPOT" where parts.count == 3:
+            guard let strip = Int(parts[1]), let delta = Int(parts[2]) else { return }
+            rotateVPot(strip: strip, delta: delta)
+        case "VPOTPRESS" where parts.count == 2:
+            guard let strip = Int(parts[1]), (0...7).contains(strip) else { return }
+            pressNote(UInt8(32 + strip), label: "vpot-press-\(strip)")
+        case "PRESS" where parts.count == 2:
+            let mapping: [String: UInt8] = [
+                "TRACK": 40,
+                "PLUGIN": 43,
+                "INSTRUMENT": 45,
+                "BANKLEFT": 46,
+                "BANKRIGHT": 47,
+                "NAMEVALUE": 52,
+                "UP": 96,
+                "DOWN": 97,
+                "LEFT": 98,
+                "RIGHT": 99
+            ]
+            guard let note = mapping[parts[1].uppercased()] else { return }
+            pressNote(note, label: "press-\(parts[1].lowercased())")
         case "BUTTON" where parts.count == 3:
             guard let strip = Int(parts[2]), (0...7).contains(strip) else { return }
             let base: Int
             if parts[1].uppercased() == "SOLO" { base = 8 }
             else if parts[1].uppercased() == "MUTE" { base = 16 }
             else { return }
-            let note = UInt8(base + strip)
-            _ = send([0x90, note, 0x7F], note: "button-down")
-            _ = send([0x80, note, 0], note: "button-up")
+            pressNote(UInt8(base + strip), label: "button-\(parts[1].lowercased())-\(strip)")
         case "HANDSHAKE": sendConnectionQuery()
         case "QUIT": shouldQuit = true
         default: break
@@ -234,9 +292,6 @@ private func packetBytes(_ list: UnsafePointer<MIDIPacketList>) -> [[UInt8]] {
     return output
 }
 
-// CoreMIDI invokes legacy MIDIReadProc callbacks on its own real-time receive
-// thread. A named C-function callback avoids the Swift executor isolation that
-// MIDIDestinationCreateWithBlock imposed on the top-level closure under Swift 6.
 private func midiReadProc(
     _ packetList: UnsafePointer<MIDIPacketList>,
     _ readProcRefCon: UnsafeMutableRawPointer?,
