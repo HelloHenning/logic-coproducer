@@ -17,7 +17,7 @@ Phase-A gate state:
 - A2 — PASS / complete
 - A3 — PASS / complete
 - A4 — PASS / complete
-- A5 — ready for one controlled target-Mac validation; research, opener redesign and restoration hardening complete
+- A5 — ready for one controlled target-Mac validation after Controls-view semantic slider mapping fix; no Studio Piano parameter mutation has yet occurred
 - A6 — pending
 - A7 — pending
 - A8 — pending
@@ -25,36 +25,37 @@ Phase-A gate state:
 
 ### Immediate next action
 
-The focused Logic Pro 12 terminology/UI-structure research pass is complete and documented in `docs/research/research-5-logic-pro-12-a5-ui-terminology.md`. The A5 automatic opener has been redesigned around the actual Logic channel-strip/instrument-slot structure rather than guessed product strings, and the A5 mutation/restoration path has now been hardened.
+The focused Logic Pro 12 terminology/UI-structure research pass is complete and documented in `docs/research/research-5-logic-pro-12-a5-ui-terminology.md`. The A5 automatic opener has been redesigned around the actual Logic channel-strip/instrument-slot structure rather than guessed product strings, and the A5 mutation/restoration path has been hardened.
 
-The next unavoidable platform action is one controlled target-Mac A5 validation run. The runner should require no manual Logic UI preparation: it resolves the `Studio Grand` fixture, opens the occupied `Piano` instrument slot structurally, verifies the Studio Piano semantic parameter surface, captures a baseline, performs one representative numeric round-trip, restores it, and independently compares the final semantic parameter inventory to the protected baseline.
+The latest target-Mac attempt materially advanced A5: the redesigned opener correctly resolved the `Studio Grand` channel strip, structurally identified the occupied `Piano` instrument slot, and opened the verified Studio Piano plug-in window. The screenshot then showed Studio Piano visibly in **Controls** view with the expected parameters (`Main Volume`, `Pedal Noise`, `Key Noise`, `Release Samples`, `Sympathetic Resonances`) and their sliders. The run still failed before mutation because the verifier incorrectly assumed a parameter name would be present on the same AX element as its slider. In the observed Logic Controls view, the semantic label and settable slider are separate accessibility elements.
 
-The intentional mutation is isolated in a signal-protected critical section so terminal interruption signals cannot strand the parameter between write and restore. After any attempted mutation, including an ordinary round-trip failure, the runner performs an independent final baseline comparison. If restoration cannot be proven, the result is `A5_SAFETY_FAIL` and the session stops. An ordinary `A5_FAIL` after mutation is allowed only when restoration has been independently verified.
+A dedicated `logic-a5-plugin-probe` now owns the Studio Piano parameter layer. It resolves a semantic parameter label to a unique settable slider using an `AXTitleUIElement` relationship when Logic exposes one, with same-row geometry as a constrained fallback. That same mapping is used for inventory, deterministic parameter selection, the one representative write/readback/restore, fresh re-resolution, and the independent final baseline comparison. The generic label-on-slider probe is no longer used by A5.
 
-GitHub Actions run #108 (`33884709757`) is green: Swift build, shell syntax and CoreMIDI bridge smoke test all pass at commit `23761542aed628904adaf554cb7e8d0488cea782`.
+The intentional mutation remains isolated in a signal-protected critical section so terminal interruption signals cannot strand the parameter between write and restore. After any attempted mutation, including an ordinary round-trip failure, the runner performs an independent final semantic baseline comparison. If restoration cannot be proven, the result is `A5_SAFETY_FAIL` and the session stops. An ordinary `A5_FAIL` after mutation is allowed only when restoration has been independently verified.
+
+GitHub Actions run #115 (`33886738346`) is green for the complete replacement path: Swift build, shell syntax and CoreMIDI bridge smoke test all pass at commit `1bf633dae36ecaae49228bc48d2852569bdf453e`.
 
 No raw screenshot or private UI snapshot should be added to the public repository. Summarized structural findings only.
 
 ### A5 run history relevant to the handoff
 
-The actual A5 semantic parameter read/write/readback/restore operation has **not yet been reached** in the failed target-Mac runs below. No Studio Piano parameter was changed in those setup failures.
+The actual A5 semantic parameter read/write/readback/restore operation has **not yet been reached** in the target-Mac failures below. No Studio Piano parameter was changed in those setup/identity failures.
 
 1. Initial manual setup runner used a timeout. The user could miss the setup window while doing other work.
 2. Timeout was removed and replaced with explicit Return confirmation, but the detector falsely rejected a visually correct Studio Piano window because it depended on an unreliable selected-descendant condition.
 3. A5 was changed to automatic AX setup. The automation correctly resolved `Studio Grand`, but tried to infer the instrument slot using guessed semantics.
-4. Latest target-Mac failure after commit `b73f6eaaad027ef7efb5f255ad2bcbfb9abb345a` reported:
-   `RESULT=FAIL reason=studio-piano-instrument-slot-not-resolved actions=Studio-Grand-already-selected,instrument-slot-candidates-studio=0-generic=0`
-   The user's screenshot then confirmed that the instrument slot is plainly present in both Mixer and Inspector and is visibly labelled `Piano`.
+4. A later target-Mac failure reported `studio-piano-instrument-slot-not-resolved`; the user's screenshot confirmed that the slot is plainly present in both Mixer and Inspector and visibly labelled `Piano`. This led to the structural `bypass` / `open` / `list` slot matcher.
+5. The next target-Mac attempt proved that redesign: the runner reported `resolved-instrument-slot-structurally-score=135` and opened Studio Piano. The plug-in was visibly in Controls view, but the dedicated Controls verifier still failed because it required semantic text such as `Main Volume` to live on the slider AX element itself. The screenshot showed the actual model: semantic labels and sliders are separate sibling/nearby elements. The run stopped before parameter mutation and protected state remained unchanged.
 
-The correct lesson is not "the Mixer branch is wrong." The lesson is that the failed matcher was looking for the wrong semantic labels / structure.
+The correct lesson from the latest failure is not that Controls view is inaccessible. Controls view was reached successfully. The remaining issue was semantic association between a label element and its corresponding slider element.
 
 ### A5 redesign and safety hardening
 
-The redesigned opener now treats Mixer and Inspector channel strips as equivalent UI surfaces for the same underlying hosted instrument where appropriate. It finds the exact `Studio Grand` fixture channel strip, recognizes an occupied instrument slot by its direct `bypass` / `open` / `list` structural signature and surrounding `audio plug-in` / `MIDI plug-in` context, and uses the visible short name `Piano` only as fixture confidence rather than as canonical plug-in identity. It does not reject an occupied slot merely because AX reports its group as disabled.
+The redesigned opener treats Mixer and Inspector channel strips as equivalent UI surfaces for the same underlying hosted instrument where appropriate. It finds the exact `Studio Grand` fixture channel strip, recognizes an occupied instrument slot by its direct `bypass` / `open` / `list` structural signature and surrounding `audio plug-in` / `MIDI plug-in` context, and uses the visible short name `Piano` only as fixture confidence rather than as canonical plug-in identity. It does not reject an occupied slot merely because AX reports its group as disabled.
 
-After opening the slot, the harness canonicalizes Studio Piano using Studio-Piano-specific semantic parameters and switches to Controls view only through a verified `Controls` menu item when a settable numeric surface is not already available.
+After opening the slot, the harness canonicalizes Studio Piano using Studio-Piano-specific semantic parameters. The new `logic-a5-plugin-probe` then treats Controls view as semantic label + associated settable slider rather than assuming one self-labelled slider element. It prefers explicit AX title relationships and otherwise requires a unique, strongly scored same-row association inside the verified Studio Piano window.
 
-A dedicated `logic-a5-safe-roundtrip` executable now owns the one intentional A5 numeric mutation. It independently re-resolves the target after the write, attempts restoration through fresh target resolution with original-element fallback, retries restoration when needed, and refuses PASS unless the baseline value is independently reverified. The shell runner then performs a separate final semantic inventory comparison against the pre-mutation baseline. This creates two restoration gates: helper-level value verification and runner-level baseline comparison.
+The same probe owns the one intentional A5 numeric mutation. It independently re-resolves the semantic parameter/slider binding after the write, retries restoration through fresh target resolution with original-element fallback, and refuses PASS unless the baseline value is independently reverified. The shell runner then performs a separate final semantic parameter inventory comparison against the pre-mutation baseline. This preserves two restoration gates: helper-level value verification and runner-level baseline comparison.
 
 ### Workflow after A5
 
@@ -173,15 +174,15 @@ Final full mixer verification matched the starting 20-control state exactly.
 
 ### A5 — Plug-in inventory and parameter control
 
-**Status: ready for one controlled target-Mac validation; no semantic parameter mutation has yet been attempted on the target Mac.**
+**Status: ready for one controlled target-Mac validation; no semantic Studio Piano parameter mutation has yet been attempted on the target Mac.**
 
 Lean POC target remains unchanged: one controlled native Logic instrument/effect chain, deterministic instance identity, one representative parameter read/write/readback/restore. Third-party AU variability is measured later rather than exhaustively tested now.
 
 The controlled reference is the `Studio Grand` track with the native Studio Piano instrument. The same green `Piano` instrument slot is reachable from both the Mixer channel strip and the Inspector channel strip. Apple terminology/UI research and target-Mac AX evidence now agree on the structural model used by the opener.
 
-The prior automatic setup failure correctly recognized that Studio Grand was already selected, then failed before opening the plug-in because its candidate matcher searched for semantics such as `Studio Piano`, `software instrument`, or `instrument slot` and found zero matches. Earlier AX evidence from another native instrument showed a hosted instrument represented as a plug-in-specific group with child controls including `bypass`, `open`, and `list`; the redesigned opener now uses that structure.
+The latest target-Mac attempt proved the structural opener and the actual Controls-view transition. The verified Studio Piano window visibly exposed semantic labels and sliders, but the old parameter verifier incorrectly expected each slider AX node to carry its own semantic label. A5 now uses a dedicated semantic binding probe that associates a known Studio Piano label with a unique settable slider using AX title relationships or tightly constrained same-row geometry.
 
-The new runner additionally requires helper-level verified restoration plus an independent final semantic inventory comparison. Any unproven post-mutation restoration is `A5_SAFETY_FAIL`, not an ordinary failed test.
+The new runner requires semantic mapping before mutation, helper-level verified restoration after the one write, and an independent final semantic inventory comparison. Any unproven post-mutation restoration is `A5_SAFETY_FAIL`, not an ordinary failed test.
 
 **Next decision gate:** run the single controlled A5 target-Mac validation. If it produces `A5_PASS`, tick A5 off and move directly to the one-session A6-A9 unattended batch. If it produces an ordinary `A5_FAIL` with `restoration=verified`, diagnose only that A5 mechanism. If it produces `A5_SAFETY_FAIL`, stop mutation work until the protected fixture is proven restored.
 
