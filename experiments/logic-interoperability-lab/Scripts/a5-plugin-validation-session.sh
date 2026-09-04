@@ -171,6 +171,19 @@ print('PASS parameter=%r before=%r changed=%r restored=%r target=%s' % (
 PY
 }
 
+setup_failure_reason() {
+  local path="$1"
+  python3 - "$path" <<'PY'
+import json,sys
+try:
+    d=json.load(open(sys.argv[1]))
+except Exception:
+    print('unknown')
+    raise SystemExit(0)
+print(str(d.get('reason') or 'unknown'))
+PY
+}
+
 progress 1 5 10 "Build and safety preflight"
 if ! swift build > "$OUT/build.log" 2>&1; then
   record "RESULT=A5_FAIL reason=build"
@@ -187,12 +200,29 @@ progress 1 5 100 "Build and safety preflight"
 
 progress 2 5 10 "Automatically prepare Studio Grand / Studio Piano UI"
 AUTO_SETUP="$OUT/a5-auto-setup.json"
-if ! "$ROOT/.build/debug/logic-a5-auto-setup" --out "$AUTO_SETUP" > "$OUT/a5-auto-setup.log" 2>&1; then
-  cat "$OUT/a5-auto-setup.log" | tee -a "$RESULTS"
-  record "RESULT=A5_FAIL reason=automatic-plugin-ui-setup protected_parameter_state=unchanged"
-  exit 20
+AUTO_SETUP_LOG="$OUT/a5-auto-setup.log"
+"$ROOT/.build/debug/logic-a5-auto-setup" --out "$AUTO_SETUP" > "$AUTO_SETUP_LOG" 2>&1
+AUTO_SETUP_RC=$?
+cat "$AUTO_SETUP_LOG" | tee -a "$RESULTS"
+
+if (( AUTO_SETUP_RC != 0 )); then
+  AUTO_REASON="$(setup_failure_reason "$AUTO_SETUP")"
+  if [[ "$AUTO_REASON" == "controls-view-not-automatable" ]]; then
+    record "INFO=A5 opener reached verified Studio Piano window; invoking dedicated Controls-view resolver"
+    CONTROLS_SETUP="$OUT/a5-controls-setup.json"
+    CONTROLS_SETUP_LOG="$OUT/a5-controls-setup.log"
+    if ! "$ROOT/.build/debug/logic-a5-controls-setup" --out "$CONTROLS_SETUP" > "$CONTROLS_SETUP_LOG" 2>&1; then
+      cat "$CONTROLS_SETUP_LOG" | tee -a "$RESULTS"
+      record "RESULT=A5_FAIL reason=controls-view-resolver protected_parameter_state=unchanged"
+      exit 20
+    fi
+    cat "$CONTROLS_SETUP_LOG" | tee -a "$RESULTS"
+    record "PASS Studio_Piano_Controls_view=verified_by_dedicated_resolver"
+  else
+    record "RESULT=A5_FAIL reason=automatic-plugin-ui-setup protected_parameter_state=unchanged setup_reason=${AUTO_REASON}"
+    exit 20
+  fi
 fi
-cat "$OUT/a5-auto-setup.log" | tee -a "$RESULTS"
 
 SETUP_TOPOLOGY="$OUT/setup-topology.json"
 if ! capture_topology "$SETUP_TOPOLOGY" || ! track_identity_ok "$SETUP_TOPOLOGY" | tee -a "$RESULTS"; then
