@@ -48,7 +48,7 @@ private enum AX {
     }
 }
 
-private struct Candidate: Codable {
+struct Candidate: Codable {
     let path: String
     let role: String?
     let title: String?
@@ -61,7 +61,7 @@ private struct Candidate: Codable {
     let valueSettable: Bool
 }
 
-private struct CandidateRef {
+struct CandidateRef {
     let candidate: Candidate
     let element: AXUIElement
 }
@@ -231,7 +231,7 @@ let maxDepth = Int(option("--depth", args: args) ?? "22") ?? 22
 let maxNodes = Int(option("--max-nodes", args: args) ?? "50000") ?? 50_000
 let tolerance = 1e-6
 
-func result(
+private func result(
     _ status: String,
     reason: String?,
     target: Candidate?,
@@ -307,7 +307,7 @@ var restoreAttempts: [String] = []
 var restored: Double? = nil
 var restorationVerified = false
 
-func verifyRestored() -> Bool {
+@MainActor func verifyRestored() -> Bool {
     if let value = freshValue(query: query, preferredPath: selected.candidate.path, maxDepth: maxDepth, maxNodes: maxNodes) {
         restored = value
         return abs(value - before) <= tolerance
