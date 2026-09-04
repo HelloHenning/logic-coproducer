@@ -16,7 +16,8 @@ let package = Package(
         .executable(name: "logic-mixer-matrix", targets: ["LogicMixerMatrix"]),
         .executable(name: "logic-blind-diff", targets: ["LogicBlindDiff"]),
         .executable(name: "logic-external-midi-actor", targets: ["LogicExternalMIDIActor"]),
-        .executable(name: "logic-surface-explorer", targets: ["LogicSurfaceExplorer"])
+        .executable(name: "logic-surface-explorer", targets: ["LogicSurfaceExplorer"]),
+        .executable(name: "logic-mcu-bridge", targets: ["LogicMCUBridge"])
     ],
     targets: [
         .executableTarget(
@@ -58,6 +59,10 @@ let package = Package(
         .executableTarget(
             name: "LogicSurfaceExplorer",
             path: "Sources/LogicSurfaceExplorer"
+        ),
+        .executableTarget(
+            name: "LogicMCUBridge",
+            path: "Sources/LogicMCUBridge"
         )
     ]
 )
