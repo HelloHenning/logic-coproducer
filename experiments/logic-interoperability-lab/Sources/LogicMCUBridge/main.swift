@@ -16,7 +16,7 @@ private func option(_ name: String, args: [String]) -> String? {
     return args[i + 1]
 }
 
-private final class PacketQueue: @unchecked Sendable {
+final class PacketQueue: @unchecked Sendable {
     private let lock = NSLock()
     private var packets: [[UInt8]] = []
 
@@ -33,7 +33,7 @@ private final class PacketQueue: @unchecked Sendable {
     }
 }
 
-private final class BridgeState {
+final class BridgeState {
     let statusURL: URL
     let eventsURL: URL
     var source: MIDIEndpointRef = 0
@@ -73,7 +73,7 @@ private final class BridgeState {
         let text = line + "\n"
         if FileManager.default.fileExists(atPath: eventsURL.path), let handle = try? FileHandle(forWritingTo: eventsURL) {
             defer { try? handle.close() }
-            try? handle.seekToEnd()
+            _ = try? handle.seekToEnd()
             try? handle.write(contentsOf: Data(text.utf8))
         } else {
             try? text.write(to: eventsURL, atomically: true, encoding: .utf8)
@@ -95,13 +95,13 @@ private final class BridgeState {
             "ring0Counter": ring0Counter,
             "mute0Counter": mute0Counter,
             "solo0Counter": solo0Counter,
-            "lastFader0Raw": lastFader0Raw as Any,
-            "lastRing0Value": lastRing0Value as Any,
-            "lastMute0Value": lastMute0Value as Any,
-            "lastSolo0Value": lastSolo0Value as Any,
+            "lastFader0Raw": lastFader0Raw.map { $0 as Any } ?? NSNull(),
+            "lastRing0Value": lastRing0Value.map { $0 as Any } ?? NSNull(),
+            "lastMute0Value": lastMute0Value.map { $0 as Any } ?? NSNull(),
+            "lastSolo0Value": lastSolo0Value.map { $0 as Any } ?? NSNull(),
             "commandAck": commandAck,
-            "lastCommand": lastCommand as Any,
-            "lastHostTraffic": lastHostTraffic as Any
+            "lastCommand": lastCommand.map { $0 as Any } ?? NSNull(),
+            "lastHostTraffic": lastHostTraffic.map { $0 as Any } ?? NSNull()
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) else { return }
         try? data.write(to: statusURL, options: .atomic)
@@ -110,12 +110,10 @@ private final class BridgeState {
     func send(_ bytes: [UInt8], note: String? = nil) -> OSStatus {
         guard source != 0 else { return -1 }
         var packetList = MIDIPacketList()
-        var packet = MIDIPacketListInit(&packetList)
+        let packet = MIDIPacketListInit(&packetList)
         let status: OSStatus = bytes.withUnsafeBufferPointer { buffer in
-            guard let base = buffer.baseAddress,
-                  MIDIPacketListAdd(&packetList, MemoryLayout<MIDIPacketList>.size, packet, 0, bytes.count, base) != nil else {
-                return -1
-            }
+            guard let base = buffer.baseAddress else { return -1 }
+            _ = MIDIPacketListAdd(&packetList, MemoryLayout<MIDIPacketList>.size, packet, 0, bytes.count, base)
             return MIDIReceived(source, &packetList)
         }
         appendEvent(direction: "device-to-logic", bytes: bytes, note: note)
@@ -160,21 +158,19 @@ private final class BridgeState {
                 let d1 = bytes[i + 1]
                 let d2 = bytes[i + 2]
                 let channel = Int(status & 0x0F)
-                switch kind {
-                case 0xE0 where channel == 0:
+
+                if kind == 0xE0 && channel == 0 {
                     lastFader0Raw = Int(d1) | (Int(d2) << 7)
                     fader0Counter += 1
-                case 0xB0 where channel == 0 && d1 == 48:
+                } else if kind == 0xB0 && channel == 0 && d1 == 48 {
                     lastRing0Value = Int(d2)
                     ring0Counter += 1
-                case 0x80, 0x90 where channel == 0 && d1 == 16:
+                } else if (kind == 0x80 || kind == 0x90) && channel == 0 && d1 == 16 {
                     lastMute0Value = Int(d2)
                     mute0Counter += 1
-                case 0x80, 0x90 where channel == 0 && d1 == 8:
+                } else if (kind == 0x80 || kind == 0x90) && channel == 0 && d1 == 8 {
                     lastSolo0Value = Int(d2)
                     solo0Counter += 1
-                default:
-                    break
                 }
                 i += 3
             } else if [UInt8(0xC0), 0xD0].contains(kind), i + 1 < bytes.count {
@@ -260,11 +256,14 @@ private func assignStableProperties(_ endpoint: MIDIEndpointRef, uniqueID: Int32
 
 private func packetBytes(_ list: UnsafePointer<MIDIPacketList>) -> [[UInt8]] {
     var output: [[UInt8]] = []
-    for packet in list.pointee {
+    var packetPointer = withUnsafePointer(to: list.pointee.packet) { $0 }
+    for _ in 0..<Int(list.pointee.numPackets) {
+        let packet = packetPointer.pointee
         let bytes = withUnsafeBytes(of: packet.data) { raw -> [UInt8] in
             Array(raw.bindMemory(to: UInt8.self).prefix(Int(packet.length)))
         }
         if !bytes.isEmpty { output.append(bytes) }
+        packetPointer = MIDIPacketNext(packetPointer)
     }
     return output
 }
