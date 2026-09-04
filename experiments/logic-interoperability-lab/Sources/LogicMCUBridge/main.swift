@@ -226,15 +226,12 @@ private func assignStableProperties(_ endpoint: MIDIEndpointRef, uniqueID: Int32
 }
 
 private func packetBytes(_ list: UnsafePointer<MIDIPacketList>) -> [[UInt8]] {
-    // Use CoreMIDI's Swift-native unsafe sequence rather than manufacturing a
-    // pointer to a copied `packet` field. The previous implementation could
-    // hand MIDIPacketNext a pointer that did not belong to the original packet
-    // list, which is unsafe as soon as Logic sends data to the virtual input.
+    // CoreMIDI exposes the packet list as a Swift-native unsafe sequence.
+    // Each element is already an UnsafePointer<MIDIPacket>; using it directly
+    // avoids constructing a pointer to a copied packet field.
     var output: [[UInt8]] = []
-    for packet in list.unsafeSequence() {
-        let bytes = withUnsafePointer(to: packet) { packetPointer in
-            Array(packetPointer.sequence())
-        }
+    for packetPointer in list.unsafeSequence() {
+        let bytes: [UInt8] = Array(packetPointer.sequence())
         if !bytes.isEmpty { output.append(bytes) }
     }
     return output
