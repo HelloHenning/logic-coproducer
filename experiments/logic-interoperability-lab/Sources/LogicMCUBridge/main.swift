@@ -226,15 +226,25 @@ private func assignStableProperties(_ endpoint: MIDIEndpointRef, uniqueID: Int32
 }
 
 private func packetBytes(_ list: UnsafePointer<MIDIPacketList>) -> [[UInt8]] {
-    // CoreMIDI exposes the packet list as a Swift-native unsafe sequence.
-    // Each element is already an UnsafePointer<MIDIPacket>; using it directly
-    // avoids constructing a pointer to a copied packet field.
     var output: [[UInt8]] = []
     for packetPointer in list.unsafeSequence() {
         let bytes: [UInt8] = Array(packetPointer.sequence())
         if !bytes.isEmpty { output.append(bytes) }
     }
     return output
+}
+
+// CoreMIDI invokes legacy MIDIReadProc callbacks on its own real-time receive
+// thread. A named C-function callback avoids the Swift executor isolation that
+// MIDIDestinationCreateWithBlock imposed on the top-level closure under Swift 6.
+private func midiReadProc(
+    _ packetList: UnsafePointer<MIDIPacketList>,
+    _ readProcRefCon: UnsafeMutableRawPointer?,
+    _ srcConnRefCon: UnsafeMutableRawPointer?
+) {
+    guard let readProcRefCon else { return }
+    let queue = Unmanaged<PacketQueue>.fromOpaque(readProcRefCon).takeUnretainedValue()
+    for bytes in packetBytes(packetList) { queue.push(bytes) }
 }
 
 let args = Array(CommandLine.arguments.dropFirst())
@@ -253,7 +263,7 @@ try? "".write(to: eventsURL, atomically: true, encoding: .utf8)
 let queue = PacketQueue()
 let state = BridgeState(statusURL: statusURL, eventsURL: eventsURL)
 var client: MIDIClientRef = 0
-let clientStatus = MIDIClientCreateWithBlock("Logic Co-Producer MCU" as CFString, &client) { _ in }
+let clientStatus = MIDIClientCreate("Logic Co-Producer MCU" as CFString, nil, nil, &client)
 guard clientStatus == noErr else { fputs("MIDIClientCreate failed: \(clientStatus)\n", stderr); exit(3) }
 
 var source: MIDIEndpointRef = 0
@@ -263,9 +273,14 @@ state.source = source
 assignStableProperties(source, uniqueID: sourceUniqueID, model: "Virtual Mackie Control output")
 
 var destination: MIDIEndpointRef = 0
-let destinationStatus = MIDIDestinationCreateWithBlock(client, destinationName as CFString, &destination) { packetList, _ in
-    for bytes in packetBytes(packetList) { queue.push(bytes) }
-}
+let queueRefCon = Unmanaged.passUnretained(queue).toOpaque()
+let destinationStatus = MIDIDestinationCreate(
+    client,
+    destinationName as CFString,
+    midiReadProc,
+    queueRefCon,
+    &destination
+)
 guard destinationStatus == noErr else { fputs("MIDIDestinationCreate failed: \(destinationStatus)\n", stderr); exit(5) }
 assignStableProperties(destination, uniqueID: destinationUniqueID, model: "Virtual Mackie Control input")
 
