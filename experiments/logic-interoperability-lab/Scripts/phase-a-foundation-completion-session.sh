@@ -9,6 +9,7 @@ ZIP="${TEST_ROOT}/coproducer-foundation-completion.zip"
 RESULTS="${OUT}/results.txt"
 OLD_ZIP="${TEST_ROOT}/coproducer-phase-a-completion.zip"
 A6="NOT_RUN"; A7_NORMAL="NOT_RUN"; A7_SIDECHAIN="NOT_RUN"; A7="NOT_RUN"; A8="NOT_RUN"; A9="NOT_RUN"; A10="NOT_RUN"; A11="NOT_RUN"
+START_EPOCH="$(date +%s)"
 
 mkdir -p "$OUT"
 : > "$RESULTS"
@@ -17,6 +18,13 @@ cd "$ROOT" || exit 2
 record(){ printf '%s\n' "$1" | tee -a "$RESULTS"; }
 package(){ rm -f "$ZIP";(cd "$TEST_ROOT"&&/usr/bin/zip -qr "$ZIP" "$(basename "$OUT")")>/dev/null 2>&1||true; }
 trap package EXIT
+
+elapsed(){
+  local now secs mins rem
+  now="$(date +%s)"; secs=$((now-START_EPOCH)); mins=$((secs/60)); rem=$((secs%60))
+  printf '%dm%02ds' "$mins" "$rem"
+}
+stage(){ record "PROGRESS elapsed=$(elapsed) $*"; }
 
 summary_get(){
   python3 - "$1" "$2" <<'PY'
@@ -45,12 +53,16 @@ safety_stop(){
 
 record "Logic Co-Producer — revised foundational Logic qualification A6-A11"
 record "Safety policy: ordinary independent failures continue; restoration uncertainty stops the session."
+record "Live progress is streamed below and simultaneously saved in the evidence bundle."
+stage "overall=0% preparing A6-A11 session"
 
+# Stream each component live through tee while retaining the component's true exit code.
+# PIPESTATUS is available in the macOS Bash 3.2 shell used on the target Mac.
 record "STEP=1 component=A6-A9 begin"
+stage "overall~5% A6-A9 automation/routing/saved-state/audio-source qualification"
 rm -f "$OLD_ZIP"
-bash "$ROOT/Scripts/phase-a-completion-session.sh" > "$OUT/a6-a9-terminal.log" 2>&1
-rc=$?
-cat "$OUT/a6-a9-terminal.log" | tee -a "$RESULTS"
+bash "$ROOT/Scripts/phase-a-completion-session.sh" 2>&1 | tee "$OUT/a6-a9-terminal.log" | tee -a "$RESULTS"
+rc=${PIPESTATUS[0]}
 if (( rc == 30 )); then safety_stop A6-A9 component-reported-unproven-restoration; fi
 if (( rc != 0 )); then
   write_summary
@@ -70,12 +82,13 @@ else
   record "NOTICE=A6-A9 summary unavailable; component evidence retained"
 fi
 record "STEP=1_RESULT A6=${A6} A7_NORMAL=${A7_NORMAL} A8=${A8} A9=${A9}"
+stage "overall~45% A6-A9 component finished"
 
 record "STEP=2 component=A10+A7-sidechain begin"
+stage "overall~50% testing stock effects and real Compressor sidechain"
 mkdir -p "$OUT/a10"
-bash "$ROOT/Scripts/a10-stock-plugin-validation-session-v2.sh" "$OUT/a10" > "$OUT/a10-terminal.log" 2>&1
-rc=$?
-cat "$OUT/a10-terminal.log" | tee -a "$RESULTS"
+bash "$ROOT/Scripts/a10-stock-plugin-validation-session-v2.sh" "$OUT/a10" 2>&1 | tee "$OUT/a10-terminal.log" | tee -a "$RESULTS"
+rc=${PIPESTATUS[0]}
 if (( rc == 30 )); then safety_stop A10 stock-plugin-chain-restoration-unproven; fi
 if [[ -f "$OUT/a10/a10-summary.json" ]]; then
   A10="$(summary_get "$OUT/a10/a10-summary.json" A10)"
@@ -85,15 +98,17 @@ else
 fi
 [[ "$A7_NORMAL" == "PASS" && "$A7_SIDECHAIN" == "PASS" ]] && A7="PASS" || A7="FAIL"
 record "STEP=2_RESULT A10=${A10} A7_SIDECHAIN=${A7_SIDECHAIN} A7_COMBINED=${A7}"
+stage "overall~85% stock-effect/sidechain component finished"
 
 record "STEP=3 component=A11 begin"
+stage "overall~88% testing disposable track, MIDI region and stock instrument construction"
 mkdir -p "$OUT/a11"
-bash "$ROOT/Scripts/a11-construction-validation-session-v2.sh" "$OUT/a11" > "$OUT/a11-terminal.log" 2>&1
-rc=$?
-cat "$OUT/a11-terminal.log" | tee -a "$RESULTS"
+bash "$ROOT/Scripts/a11-construction-validation-session-v2.sh" "$OUT/a11" 2>&1 | tee "$OUT/a11-terminal.log" | tee -a "$RESULTS"
+rc=${PIPESTATUS[0]}
 if (( rc == 30 )); then safety_stop A11 disposable-construction-restoration-unproven; fi
 if [[ -f "$OUT/a11/a11-summary.json" ]]; then A11="$(summary_get "$OUT/a11/a11-summary.json" A11)"; else A11="FAIL"; fi
 record "STEP=3_RESULT A11=${A11}"
+stage "overall~98% packaging evidence and final gate summary"
 
 write_summary
 record "FOUNDATION_GATE_SUMMARY A6=${A6} A7=${A7} A8=${A8} A9=${A9} A10=${A10} A11=${A11}"
@@ -103,4 +118,5 @@ if [[ "$A6" == "PASS" && "$A7" == "PASS" && "$A8" == "PASS" && "$A9" == "PASS" &
 else
   record "RESULT=FOUNDATION_SESSION_COMPLETE qualification=PARTIAL safety_restoration=verified"
 fi
+stage "overall=100% complete"
 printf 'Evidence ZIP: %s\n' "$ZIP"
