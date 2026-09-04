@@ -44,26 +44,16 @@ jobs:
           }
           trap cleanup EXIT
 
+          READY=no
           for _ in $(seq 1 80); do
-            if [[ -f "$STATUS" ]] && python3 - "$STATUS" <<'PY'
-import json,sys
-try:
-    print('yes' if json.load(open(sys.argv[1])).get('ready') else 'no')
-except Exception:
-    print('no')
-PY
-            then
-              READY="$(python3 - "$STATUS" <<'PY'
-import json,sys
-try: print('yes' if json.load(open(sys.argv[1])).get('ready') else 'no')
-except Exception: print('no')
-PY
-)"
+            if [[ -f "$STATUS" ]]; then
+              READY="$(python3 -c 'import json,sys; print("yes" if json.load(open(sys.argv[1])).get("ready") else "no")' "$STATUS" 2>/dev/null || echo no)"
               [[ "$READY" == "yes" ]] && break
             fi
             sleep 0.1
           done
 
+          test "$READY" = yes
           kill -0 "$PID"
           .build/debug/logic-surface-explorer midi-endpoints --out "$TMP/endpoints.json"
           grep -q 'CoProducer MCU To Logic' "$TMP/endpoints.json"
@@ -73,11 +63,7 @@ PY
           sleep 0.3
           kill -0 "$PID"
 
-          COUNT="$(python3 - "$STATUS" <<'PY'
-import json,sys
-print(int(json.load(open(sys.argv[1])).get('hostPacketCount',0)))
-PY
-)"
+          COUNT="$(python3 -c 'import json,sys; print(int(json.load(open(sys.argv[1])).get("hostPacketCount",0)))' "$STATUS")"
           test "$COUNT" -gt 0
           printf 'QUIT\n' >> "$COMMANDS"
           for _ in $(seq 1 40); do
