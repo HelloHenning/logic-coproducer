@@ -17,7 +17,7 @@ Phase-A gate state:
 - A2 — PASS / complete
 - A3 — PASS / complete
 - A4 — PASS / complete
-- A5 — pending; **do not run another target-Mac A5 attempt yet**
+- A5 — ready for one controlled target-Mac validation; research, opener redesign and restoration hardening complete
 - A6 — pending
 - A7 — pending
 - A8 — pending
@@ -25,25 +25,19 @@ Phase-A gate state:
 
 ### Immediate next action
 
-Before another A5 runner is sent to the target Mac, perform a focused terminology/UI-structure research pass for Logic Pro 12.0.1. The recent A5 failures were setup-harness failures caused by incorrect assumptions about Logic's exposed plug-in-slot semantics, not failures of the actual parameter round-trip.
+The focused Logic Pro 12 terminology/UI-structure research pass is complete and documented in `docs/research/research-5-logic-pro-12-a5-ui-terminology.md`. The A5 automatic opener has been redesigned around the actual Logic channel-strip/instrument-slot structure rather than guessed product strings, and the A5 mutation/restoration path has now been hardened.
 
-Research should establish and document, using Apple documentation first and corroborating sources only where useful:
+The next unavoidable platform action is one controlled target-Mac A5 validation run. The runner should require no manual Logic UI preparation: it resolves the `Studio Grand` fixture, opens the occupied `Piano` instrument slot structurally, verifies the Studio Piano semantic parameter surface, captures a baseline, performs one representative numeric round-trip, restores it, and independently compares the final semantic parameter inventory to the protected baseline.
 
-- Track vs channel strip terminology and identity.
-- Mixer channel strip vs Inspector channel strip and how both expose the same software instrument.
-- Software-instrument slot / instrument plug-in slot terminology versus Audio FX insert slots and MIDI FX slots.
-- Plug-in window terminology, including Editor vs Controls view and the View/zoom control.
-- Known Logic key commands or menu commands for opening the focused track's instrument plug-in, without silently altering the user's key-command assignments.
-- The relationship between visible slot labels (for the controlled fixture the slot is visibly labelled `Piano`) and Accessibility structure.
-- Existing AX evidence showing a hosted instrument represented as a plug-in-specific group with child controls such as `bypass`, `open`, and `list`.
+The intentional mutation is isolated in a signal-protected critical section so terminal interruption signals cannot strand the parameter between write and restore. After any attempted mutation, including an ordinary round-trip failure, the runner performs an independent final baseline comparison. If restoration cannot be proven, the result is `A5_SAFETY_FAIL` and the session stops. An ordinary `A5_FAIL` after mutation is allowed only when restoration has been independently verified.
 
-After that research, redesign A5 setup automation from the actual Logic structure rather than guessed strings. The controlled fixture visibly exposes the same green `Piano` instrument slot both in the Studio Grand Mixer strip and in the Inspector channel strip. The latest failed A5 matcher searched for `Studio Piano`, `software instrument`, or `instrument slot`, returned zero candidates, and aborted before any plug-in parameter mutation. That matcher is therefore not authoritative evidence about whether the Mixer route exists.
+GitHub Actions run #108 (`33884709757`) is green: Swift build, shell syntax and CoreMIDI bridge smoke test all pass at commit `23761542aed628904adaf554cb7e8d0488cea782`.
 
 No raw screenshot or private UI snapshot should be added to the public repository. Summarized structural findings only.
 
 ### A5 run history relevant to the handoff
 
-The actual A5 semantic parameter read/write/readback/restore operation has **not yet been reached** in the failed runs below. No Studio Piano parameter was changed in those setup failures.
+The actual A5 semantic parameter read/write/readback/restore operation has **not yet been reached** in the failed target-Mac runs below. No Studio Piano parameter was changed in those setup failures.
 
 1. Initial manual setup runner used a timeout. The user could miss the setup window while doing other work.
 2. Timeout was removed and replaced with explicit Return confirmation, but the detector falsely rejected a visually correct Studio Piano window because it depended on an unreliable selected-descendant condition.
@@ -52,7 +46,15 @@ The actual A5 semantic parameter read/write/readback/restore operation has **not
    `RESULT=FAIL reason=studio-piano-instrument-slot-not-resolved actions=Studio-Grand-already-selected,instrument-slot-candidates-studio=0-generic=0`
    The user's screenshot then confirmed that the instrument slot is plainly present in both Mixer and Inspector and is visibly labelled `Piano`.
 
-The correct lesson is not "the Mixer branch is wrong." The lesson is that the current AX matcher is looking for the wrong semantic labels / structure.
+The correct lesson is not "the Mixer branch is wrong." The lesson is that the failed matcher was looking for the wrong semantic labels / structure.
+
+### A5 redesign and safety hardening
+
+The redesigned opener now treats Mixer and Inspector channel strips as equivalent UI surfaces for the same underlying hosted instrument where appropriate. It finds the exact `Studio Grand` fixture channel strip, recognizes an occupied instrument slot by its direct `bypass` / `open` / `list` structural signature and surrounding `audio plug-in` / `MIDI plug-in` context, and uses the visible short name `Piano` only as fixture confidence rather than as canonical plug-in identity. It does not reject an occupied slot merely because AX reports its group as disabled.
+
+After opening the slot, the harness canonicalizes Studio Piano using Studio-Piano-specific semantic parameters and switches to Controls view only through a verified `Controls` menu item when a settable numeric surface is not already available.
+
+A dedicated `logic-a5-safe-roundtrip` executable now owns the one intentional A5 numeric mutation. It independently re-resolves the target after the write, attempts restoration through fresh target resolution with original-element fallback, retries restoration when needed, and refuses PASS unless the baseline value is independently reverified. The shell runner then performs a separate final semantic inventory comparison against the pre-mutation baseline. This creates two restoration gates: helper-level value verification and runner-level baseline comparison.
 
 ### Workflow after A5
 
@@ -171,17 +173,17 @@ Final full mixer verification matched the starting 20-control state exactly.
 
 ### A5 — Plug-in inventory and parameter control
 
-**Status: pending; setup harness under redesign.**
+**Status: ready for one controlled target-Mac validation; no semantic parameter mutation has yet been attempted on the target Mac.**
 
 Lean POC target remains unchanged: one controlled native Logic instrument/effect chain, deterministic instance identity, one representative parameter read/write/readback/restore. Third-party AU variability is measured later rather than exhaustively tested now.
 
-The controlled reference is the `Studio Grand` track with the native Studio Piano instrument. The user's latest screenshot confirms that the same green `Piano` instrument slot is reachable from both the Mixer channel strip and the Inspector channel strip.
+The controlled reference is the `Studio Grand` track with the native Studio Piano instrument. The same green `Piano` instrument slot is reachable from both the Mixer channel strip and the Inspector channel strip. Apple terminology/UI research and target-Mac AX evidence now agree on the structural model used by the opener.
 
-The latest automatic setup runner correctly recognized that Studio Grand was already selected, then failed before opening the plug-in because its candidate matcher searched for semantics such as `Studio Piano`, `software instrument`, or `instrument slot` and found zero matches. Earlier AX evidence from another native instrument shows a hosted instrument represented as a plug-in-specific group with child controls including `bypass`, `open`, and `list`. That evidence should guide the redesign.
+The prior automatic setup failure correctly recognized that Studio Grand was already selected, then failed before opening the plug-in because its candidate matcher searched for semantics such as `Studio Piano`, `software instrument`, or `instrument slot` and found zero matches. Earlier AX evidence from another native instrument showed a hosted instrument represented as a plug-in-specific group with child controls including `bypass`, `open`, and `list`; the redesigned opener now uses that structure.
 
-**Important:** no failed A5 target-Mac run to date has reached the actual parameter mutation stage. Do not interpret these setup failures as evidence against native plug-in parameter control.
+The new runner additionally requires helper-level verified restoration plus an independent final semantic inventory comparison. Any unproven post-mutation restoration is `A5_SAFETY_FAIL`, not an ordinary failed test.
 
-**Next decision gate:** first complete focused Logic terminology/UI-structure research, then implement one deterministic opener based on the actual channel-strip / instrument-slot structure, with Mixer and Inspector routes treated as equivalent surfaces for the same hosted instrument where appropriate. Do not send another speculative A5 runner to the user before this is done.
+**Next decision gate:** run the single controlled A5 target-Mac validation. If it produces `A5_PASS`, tick A5 off and move directly to the one-session A6-A9 unattended batch. If it produces an ordinary `A5_FAIL` with `restoration=verified`, diagnose only that A5 mechanism. If it produces `A5_SAFETY_FAIL`, stop mutation work until the protected fixture is proven restored.
 
 ### A6 — Automation
 
