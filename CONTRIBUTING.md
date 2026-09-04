@@ -1,47 +1,48 @@
 # Contributing
 
-Logic Co-Producer is currently a research/architecture project moving toward empirical proof-of-concept work.
+Thanks for the interest in Logic Co-Producer.
 
-## What is useful right now
+This repository is currently in an architecture/empirical proof-of-concept phase rather than a general feature-development phase.
 
-Contributions are most valuable when they provide:
+## Useful contributions
 
-- reproducible observations about Logic Pro automation/state access;
-- small experiments with clear pass/fail criteria;
-- documentation corrections with primary sources;
-- test fixtures that are synthetic or clearly redistributable;
-- careful notes about macOS/Logic-version differences;
-- licensing/provenance findings for candidate dependencies or model weights.
+The most useful findings are reproducible observations about Logic Pro integration surfaces, especially:
 
-Negative results are welcome. “This interface cannot reliably enumerate X under these conditions” can save substantial duplicate work.
+- Accessibility behavior and limitations;
+- Event List / Automation Event List completeness or mutation behavior;
+- Mackie Control/CoreMIDI behavior;
+- plug-in parameter accessibility and identity;
+- routing/send/sidechain control surfaces;
+- saved `.logicx` observations;
+- audio-region/source mapping;
+- negative results that rule out unsafe assumptions.
 
-## Before submitting substantial code
+## POC validation philosophy
 
-**No repository-wide software license has been selected yet.** Please open an issue/discussion before submitting substantial source code so licensing and intended reuse are clear. Do not assume code in this repository is automatically open-source merely because the repository is public.
+The current POC is decision-oriented rather than exhaustive.
 
-## Evidence standards
+> Test a distinct architectural connection or failure mode, make the decision it unlocks, then move on.
 
-Please distinguish:
+Please do not expand a proof into a large compatibility or micro-variation matrix unless a representative result is ambiguous or exposes a materially different failure mode. Broad regression/stress/compatibility coverage belongs later, once there is a product to harden.
 
-- documented platform/tool behavior;
-- behavior observed in a reproducible experiment;
-- inference/hypothesis;
-- product preference.
+See [`docs/poc/validation-status.md`](docs/poc/validation-status.md) for current evidence and stop conditions.
 
-For experiments, include the macOS version, Logic version, hardware, fixture/build revision, exact procedure, raw observations where practical, and pass/fail criteria.
+## Safety
 
-## Privacy
+- Use synthetic projects/fixtures rather than unpublished or private music.
+- Never treat a UI/API action return value as proof that Logic changed.
+- Independently reread affected state after a mutation.
+- Refuse ambiguous targets rather than guessing.
+- Restore reversible test changes and verify restoration.
+- Do not modify an open `.logicx` package directly.
+- Raw AX snapshots and evidence ZIPs may reveal unrelated recent-file/UI history; sanitize before committing.
 
-Do not commit:
+## Scope
 
-- API keys, credentials or license keys;
-- unpublished personal music unless you own it and explicitly intend to publish it;
-- private client/project data;
-- local usernames/home paths when avoidable;
-- proprietary third-party assets without redistribution rights.
+The architecture is intentionally hybrid. A negative result for one integration surface does not automatically kill the product; it may instead define a capability boundary or trigger a different adapter.
 
-Synthetic musical fixtures are preferred for Logic integration tests.
+AI/provider integrations are downstream of authoritative state and transaction safety. Please avoid adding provider-specific action execution paths that bypass semantic plans or local verification.
 
-## Pull requests
+## Licensing
 
-Keep PRs focused. Explain what claim or test the change supports and identify any remaining uncertainty. Architecture changes should add or update an ADR when they materially alter a project principle or POC-gated decision.
+No repository-wide software license has been selected yet. Do not assume permission to reuse repository code outside normal copyright rules until a license is added. Dependencies, model weights, datasets and sample media must have compatible rights before they become product dependencies.
