@@ -294,28 +294,6 @@ private func selectRow(table: AXUIElement, row: AXUIElement) -> Bool {
     return false
 }
 
-private func allCanonicalRows(table: AXUIElement, scrollSteps: Int = 16) -> [CanonicalRow] {
-    let rows = AX.elements(table, "AXRows")
-    guard !rows.isEmpty else { return [] }
-    let bar = scrollBar(for: table)
-    var originalScroll: Double?
-    if let bar { originalScroll = AX.number(bar) }
-    defer {
-        if let bar, let originalScroll { setScroll(bar, originalScroll) }
-    }
-    var byIndex: [Int: CanonicalRow] = [:]
-    let sweep: [Double] = bar == nil ? [0] : (0...max(1, scrollSteps)).map { Double($0) / Double(max(1, scrollSteps)) }
-    for scroll in sweep {
-        if let bar { setScroll(bar, scroll) }
-        for (index, row) in rows.enumerated() {
-            if let live = liveRow(row), !live.canonical.position.isEmpty, !live.canonical.status.isEmpty {
-                byIndex[index] = live.canonical
-            }
-        }
-    }
-    return byIndex.keys.sorted().compactMap { byIndex[$0] }
-}
-
 private func liveEnvironment() -> (NSRunningApplication, AXUIElement, AXUIElement)? {
     guard AXIsProcessTrusted(), let app = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.logic10").first else { return nil }
     let root = AXUIElementCreateApplication(app.processIdentifier)
@@ -381,7 +359,7 @@ var table = env.2
 let planPath = option("--plan", args: args)
 let label = option("--label", args: args) ?? command
 
-func snapshotRow(path: String, index: Int) throws -> (Snapshot, SnapshotRow, CanonicalRow) {
+private func snapshotRow(path: String, index: Int) throws -> (Snapshot, SnapshotRow, CanonicalRow) {
     let snapshot = try loadSnapshot(path)
     guard snapshot.rows.indices.contains(index) else { throw NSError(domain: "LogicExternalMIDIActor", code: 1, userInfo: [NSLocalizedDescriptionKey: "row index out of range"]) }
     let row = snapshot.rows[index]
@@ -490,7 +468,6 @@ do {
         let rowsNow = AX.elements(table, "AXRows")
         let stillThere = findLiveRow(table: table, expected: expected) != nil
         guard rowsNow.count == snapshot.rows.count - 1, !stillThere else {
-            // Only undo if we have evidence that deletion actually occurred.
             if rowsNow.count == snapshot.rows.count - 1 || !stillThere {
                 keyEvent(keyCode: 6, command: true)
                 usleep(500_000)
