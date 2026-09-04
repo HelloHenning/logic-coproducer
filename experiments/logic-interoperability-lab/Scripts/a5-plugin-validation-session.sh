@@ -7,7 +7,6 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 OUT="${TEST_ROOT}/a5-plugin-${STAMP}"
 ZIP="${TEST_ROOT}/coproducer-a5-plugin-session.zip"
 EXPECTED_TRACK="Studio Grand"
-QUERIES="Stereo Mic A,Stereo Mic B,Mono Mic,Main Volume,Pedal Noise,Key Noise,Release Samples,Sympathetic Resonance"
 RESULTS="${OUT}/results.txt"
 INTERRUPTED=0
 
@@ -78,7 +77,7 @@ PY
 
 capture_plugin_inventory() {
   local path="$1"
-  "$ROOT/.build/debug/logic-control-probe" inventory --queries "$QUERIES" --out "$path" > "${path%.json}.log" 2>&1
+  "$ROOT/.build/debug/logic-a5-plugin-probe" inventory --out "$path" > "${path%.json}.log" 2>&1
 }
 
 choose_parameter() {
@@ -88,28 +87,34 @@ import json,sys
 p=sys.argv[1]
 d=json.load(open(p))
 preference=['Stereo Mic A','Main Volume','Pedal Noise','Key Noise','Release Samples','Sympathetic Resonance','Stereo Mic B','Mono Mic']
-
-def numeric_candidates(q):
-    out=[]
-    for c in d.get('matches',{}).get(q,[]):
-        if c.get('role')!='AXSlider' or not c.get('valueSettable') or c.get('enabled') is False: continue
-        try:
-            v=float(c.get('value')); lo=float(c.get('minimum')); hi=float(c.get('maximum'))
-        except (TypeError,ValueError): continue
-        if hi <= lo: continue
-        out.append((c,v,lo,hi))
-    return out
-
-semantic_hits=sum(1 for q in preference if d.get('matches',{}).get(q))
-if semantic_hits < 3:
-    print('FAIL semantic_studio_piano_hits='+str(semantic_hits))
+if d.get('result')!='PASS':
+    print('FAIL inventory_result='+str(d.get('result'))+' reason='+str(d.get('reason')))
     sys.exit(2)
-for q in preference:
-    cs=numeric_candidates(q)
-    if len(cs)==1:
-        print(q)
-        sys.exit(0)
-print('FAIL no_unique_numeric_parameter')
+semantic=d.get('semanticParameterHits') or []
+params=d.get('parameters') or []
+if len(semantic)<3 or len(params)<3:
+    print('FAIL semantic_hits=%d mapped_parameters=%d' % (len(semantic),len(params)))
+    sys.exit(2)
+by_name={p.get('name'):p for p in params if p.get('name')}
+for name in preference:
+    p=by_name.get(name)
+    if not p: continue
+    slider=p.get('slider') or {}
+    if not slider.get('valueSettable'): continue
+    try:
+        value=float(p.get('value'))
+    except (TypeError,ValueError):
+        continue
+    lo=p.get('minimum'); hi=p.get('maximum')
+    if lo is not None and hi is not None:
+        try:
+            if float(hi)<=float(lo): continue
+        except (TypeError,ValueError):
+            continue
+    if int(p.get('score') or 0)<70: continue
+    print(name)
+    sys.exit(0)
+print('FAIL no_unique_semantic_slider_binding')
 sys.exit(3)
 PY
 }
@@ -119,25 +124,27 @@ compare_plugin_inventory() {
   python3 - "$before" "$after" <<'PY'
 import json,sys,math
 b=json.load(open(sys.argv[1])); a=json.load(open(sys.argv[2]))
-queries=['Stereo Mic A','Stereo Mic B','Mono Mic','Main Volume','Pedal Noise','Key Noise','Release Samples','Sympathetic Resonance']
+if b.get('result')!='PASS' or a.get('result')!='PASS':
+    print('FAIL inventory_result before=%r after=%r' % (b.get('result'),a.get('result')))
+    sys.exit(2)
 
 def values(d):
     out={}
-    for q in queries:
-        for c in d.get('matches',{}).get(q,[]):
-            if c.get('role')!='AXSlider' or not c.get('valueSettable') or c.get('enabled') is False: continue
-            try: value=float(c.get('value'))
-            except (TypeError,ValueError): continue
-            out[(q,c.get('path',''))]=value
+    for p in d.get('parameters') or []:
+        name=p.get('name')
+        if not name: continue
+        try: value=float(p.get('value'))
+        except (TypeError,ValueError): continue
+        out[name]=value
     return out
 bv,av=values(b),values(a)
-if not bv:
-    print('FAIL no_numeric_plugin_parameters_in_baseline')
+if len(bv)<3:
+    print('FAIL insufficient_mapped_plugin_parameters_in_baseline='+str(len(bv)))
     sys.exit(2)
 if set(bv)!=set(av):
-    print('FAIL parameter_identity_changed removed=%d added=%d' % (len(set(bv)-set(av)),len(set(av)-set(bv))))
+    print('FAIL semantic_parameter_identity_changed removed=%r added=%r' % (sorted(set(bv)-set(av)),sorted(set(av)-set(bv))))
     sys.exit(3)
-changed=[k for k in sorted(bv) if not math.isclose(bv[k],av[k],rel_tol=0.0,abs_tol=1e-9)]
+changed=[name for name in sorted(bv) if not math.isclose(bv[name],av[name],rel_tol=0.0,abs_tol=1e-9)]
 if changed:
     print('FAIL final_parameter_changes='+repr(changed))
     sys.exit(4)
@@ -166,8 +173,10 @@ if math.isclose(float(before),float(changed),rel_tol=0.0,abs_tol=1e-9):
 if not math.isclose(float(before),float(restored),rel_tol=0.0,abs_tol=1e-6):
     print('FAIL roundtrip_restore_value_mismatch')
     sys.exit(6)
-print('PASS parameter=%r before=%r changed=%r restored=%r target=%s' % (
-    x.get('query'),before,changed,restored,(x.get('target') or {}).get('path','')))
+target=x.get('target') or {}
+slider=target.get('slider') or {}
+print('PASS parameter=%r before=%r changed=%r restored=%r target=%s association=%s' % (
+    x.get('query'),before,changed,restored,slider.get('path',''),target.get('association','')))
 PY
 }
 
@@ -208,16 +217,7 @@ cat "$AUTO_SETUP_LOG" | tee -a "$RESULTS"
 if (( AUTO_SETUP_RC != 0 )); then
   AUTO_REASON="$(setup_failure_reason "$AUTO_SETUP")"
   if [[ "$AUTO_REASON" == "controls-view-not-automatable" ]]; then
-    record "INFO=A5 opener reached verified Studio Piano window; invoking dedicated Controls-view resolver"
-    CONTROLS_SETUP="$OUT/a5-controls-setup.json"
-    CONTROLS_SETUP_LOG="$OUT/a5-controls-setup.log"
-    if ! "$ROOT/.build/debug/logic-a5-controls-setup" --out "$CONTROLS_SETUP" > "$CONTROLS_SETUP_LOG" 2>&1; then
-      cat "$CONTROLS_SETUP_LOG" | tee -a "$RESULTS"
-      record "RESULT=A5_FAIL reason=controls-view-resolver protected_parameter_state=unchanged"
-      exit 20
-    fi
-    cat "$CONTROLS_SETUP_LOG" | tee -a "$RESULTS"
-    record "PASS Studio_Piano_Controls_view=verified_by_dedicated_resolver"
+    record "INFO=A5 opener reached verified Studio Piano window; semantic plug-in probe will own Controls mapping"
   else
     record "RESULT=A5_FAIL reason=automatic-plugin-ui-setup protected_parameter_state=unchanged setup_reason=${AUTO_REASON}"
     exit 20
@@ -231,22 +231,24 @@ if ! capture_topology "$SETUP_TOPOLOGY" || ! track_identity_ok "$SETUP_TOPOLOGY"
 fi
 SETUP_INVENTORY="$OUT/setup-plugin-inventory.json"
 if ! capture_plugin_inventory "$SETUP_INVENTORY"; then
+  cat "${SETUP_INVENTORY%.json}.log" | tee -a "$RESULTS"
   record "RESULT=A5_FAIL reason=setup-plugin-inventory protected_parameter_state=unchanged"
   exit 20
 fi
+cat "${SETUP_INVENTORY%.json}.log" | tee -a "$RESULTS"
 CHOSEN="$(choose_parameter "$SETUP_INVENTORY")" || {
-  cat "${SETUP_INVENTORY%.json}.log" | tee -a "$RESULTS"
   record "RESULT=A5_FAIL reason=no-safe-semantic-parameter protected_parameter_state=unchanged"
   exit 20
 }
 printf '%s\n' "$CHOSEN" > "$OUT/chosen-parameter.txt"
-record "PASS native_plugin=Studio_Piano track=Studio_Grand chosen_parameter=${CHOSEN// /_} instance_identity=verified"
+record "PASS native_plugin=Studio_Piano track=Studio_Grand chosen_parameter=${CHOSEN// /_} instance_identity=verified semantic_slider_mapping=verified"
 abort_if_interrupted
 progress 2 5 100 "Native Studio Piano semantic parameter surface ready"
 
 progress 3 5 30 "Capture authoritative semantic parameter baseline"
 BASELINE="$OUT/plugin-baseline.json"
 if ! capture_plugin_inventory "$BASELINE"; then
+  cat "${BASELINE%.json}.log" | tee -a "$RESULTS"
   record "RESULT=A5_FAIL reason=baseline-inventory protected_parameter_state=unchanged"
   exit 20
 fi
@@ -269,7 +271,7 @@ ROUNDTRIP_LOG="$OUT/plugin-roundtrip.log"
 # interruption signals in this child so Ctrl-C/TERM/HUP cannot strand the value
 # between the write and the binary's verified restoration attempt.
 trap '' INT TERM HUP
-"$ROOT/.build/debug/logic-a5-safe-roundtrip" --query "$CHOSEN" --out "$ROUNDTRIP" > "$ROUNDTRIP_LOG" 2>&1
+"$ROOT/.build/debug/logic-a5-plugin-probe" roundtrip --query "$CHOSEN" --out "$ROUNDTRIP" > "$ROUNDTRIP_LOG" 2>&1
 ROUNDTRIP_RC=$?
 trap on_interrupt INT TERM HUP
 cat "$ROUNDTRIP_LOG" | tee -a "$RESULTS"
@@ -280,10 +282,11 @@ if [[ -f "$ROUNDTRIP" ]] && verify_roundtrip_json "$ROUNDTRIP" | tee -a "$RESULT
 fi
 progress 4 5 75 "Round-trip finished; verify protected baseline independently"
 
-# Always perform the independent final baseline comparison after any attempted
-# mutation, including ordinary round-trip failures. A mismatch is safety-critical.
+# Always perform the independent final semantic inventory comparison after any
+# attempted mutation. A mismatch is safety-critical and stops the session.
 FINAL="$OUT/plugin-final.json"
 if ! capture_plugin_inventory "$FINAL"; then
+  cat "${FINAL%.json}.log" | tee -a "$RESULTS"
   record "RESULT=A5_SAFETY_FAIL reason=final-inventory-unavailable restoration=unproven"
   exit 30
 fi
