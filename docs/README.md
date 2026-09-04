@@ -11,6 +11,7 @@ Broad research is complete and the repository is now in the **architecture → e
 - [Research 4 final synthesis](research/research-4-final-synthesis.md)
 - [Architectural kill tests](poc/architectural-kill-tests.md)
 - [Ordered proof-of-concept plan](poc/test-plan.md)
+- [Current POC validation status](poc/validation-status.md)
 - [Architecture Decision Records](adr/README.md)
 
 ## Research
@@ -37,23 +38,24 @@ The repository publishes curated summaries rather than raw research transcripts.
 
 The immediate implementation is **`LogicInteroperabilityLab`**.
 
-The first decisive sequence is:
+The first decisive sequence is now qualified for the POC:
 
-1. complete Event List MIDI read;
-2. one-event granular mutation;
-3. manual MIDI edit detection.
+1. complete Event List MIDI read — **PASS**;
+2. granular MIDI mutation — **PASS**;
+3. authoritative refresh after an independent/manual MIDI edit — **PASS**.
 
-This sequence tests whether the project can support its distinctive MVP: **Authoritative MIDI Collaboration**.
+This establishes the core premise for the distinctive MVP: **Authoritative MIDI Collaboration**. The remaining Phase-A work is intentionally lean and decision-oriented: prove the mixer/control-surface connection, representative plug-in/automation/routing connections, saved-state supplementation, and audio-region/source mapping without expanding into exhaustive compatibility matrices.
 
 See:
 
+- [Current POC validation status](poc/validation-status.md)
 - [Ordered POC plan](poc/test-plan.md)
 - [Final kill-test matrix](poc/architectural-kill-tests.md)
 - [Superseded preliminary kill-test page](poc/preliminary-kill-tests.md)
 
 ## Architecture decisions
 
-The ADR directory separates accepted design constraints from POC-gated hypotheses. In particular, Event List MIDI remains deliberately POC-gated until exhaustive read/write/readback tests pass.
+The ADR directory separates accepted design constraints from POC-gated hypotheses. Event List MIDI has now passed the core read/write/refresh architectural gates for the qualified stored-event subset; broader edge-case and compatibility coverage remains deferred to product hardening.
 
 ## Schemas
 
@@ -67,6 +69,4 @@ See [`../experiments/`](../experiments/) for reproducible experiment guidance an
 
 Do not begin with AI cosmetics.
 
-The project should first prove:
-
-> **Logic state can be observed authoritatively, a minimal change can be made and independently verified, manual user changes can be re-read, and stale AI/controller history cannot override what is currently in Logic.**
+The project should first prove the remaining distinct Logic control/state connections, then move into the Authoritative State Kernel and Transaction Engine rather than accumulating micro-test coverage.

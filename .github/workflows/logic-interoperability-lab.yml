@@ -1,0 +1,78 @@
+name: LogicInteroperabilityLab
+
+on:
+  pull_request:
+    paths:
+      - "experiments/logic-interoperability-lab/**"
+      - ".github/workflows/logic-interoperability-lab.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: experiments/logic-interoperability-lab
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Swift version
+        run: swift --version
+      - name: Build
+        run: swift build
+      - name: Shell syntax
+        run: bash -n Scripts/*.sh
+      - name: CoreMIDI bridge smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          TMP="$(mktemp -d)"
+          COMMANDS="$TMP/commands.txt"
+          STATUS="$TMP/status.json"
+          EVENTS="$TMP/events.jsonl"
+          LOG="$TMP/bridge.log"
+          : > "$COMMANDS"
+
+          .build/debug/logic-mcu-bridge \
+            --commands "$COMMANDS" --status "$STATUS" --events "$EVENTS" \
+            > "$LOG" 2>&1 &
+          PID=$!
+
+          cleanup() {
+            if kill -0 "$PID" 2>/dev/null; then
+              printf 'QUIT\n' >> "$COMMANDS" || true
+              sleep 0.3
+              kill "$PID" 2>/dev/null || true
+            fi
+            cat "$LOG" || true
+          }
+          trap cleanup EXIT
+
+          READY=no
+          for _ in $(seq 1 120); do
+            if [[ -f "$STATUS" ]]; then
+              READY="$(python3 -c 'import json,sys; print("yes" if json.load(open(sys.argv[1])).get("ready") else "no")' "$STATUS" 2>/dev/null || echo no)"
+              [[ "$READY" == "yes" ]] && break
+            fi
+            sleep 0.1
+          done
+          test "$READY" = yes
+          kill -0 "$PID"
+
+          .build/debug/logic-surface-explorer midi-endpoints --out "$TMP/endpoints.json"
+          grep -q 'CoProducer MCU To Logic' "$TMP/endpoints.json"
+          grep -q 'CoProducer MCU From Logic' "$TMP/endpoints.json"
+
+          .build/debug/logic-midi-smoke-client
+          sleep 0.5
+          kill -0 "$PID"
+
+          COUNT="$(python3 -c 'import json,sys; print(int(json.load(open(sys.argv[1])).get("hostPacketCount",0)))' "$STATUS")"
+          test "$COUNT" -gt 0
+
+          printf 'QUIT\n' >> "$COMMANDS"
+          for _ in $(seq 1 60); do
+            kill -0 "$PID" 2>/dev/null || break
+            sleep 0.1
+          done
+          ! kill -0 "$PID" 2>/dev/null

@@ -2,7 +2,7 @@
 
 Research and development of a **session-aware AI co-producer for Logic Pro**.
 
-> **Current status:** broad research is complete. The architecture is established and the project is moving into the first empirical Logic interoperability proof of concept.
+> **Current status:** broad research is complete. The architecture is established and the project is in empirical Logic interoperability proof-of-concept work. The core authoritative MIDI sequence has passed for the qualified stored-event subset; the remaining Phase-A gates are being tested with a lean, decision-oriented strategy.
 
 ## The core idea
 
@@ -61,9 +61,15 @@ The four research stages now support one recommended architecture rather than a 
 
 ### Logic integration
 
-There is no single documented public Logic project-object API that exposes complete live CRUD access to all project domains. The architecture therefore uses the strongest interface per operation: Accessibility/AXObserver, virtual Mackie Control/CoreMIDI, Event List and Automation Event List if their critical POCs pass, read-only saved `.logicx` inspection, and optional narrow Scripter/AU telemetry.
+There is no single documented public Logic project-object API that exposes complete live CRUD access to all project domains. The architecture therefore uses the strongest interface per operation: Accessibility/AXObserver, virtual Mackie Control/CoreMIDI, Event List and Automation Event List where empirically qualified, read-only saved `.logicx` inspection, and optional narrow Scripter/AU telemetry.
 
-The largest unresolved gate is **exact live stored-MIDI access**. Event List Accessibility remains promising but is deliberately POC-gated rather than treated as solved.
+The core live stored-MIDI gates are now qualified for the exercised subset:
+
+- complete hydrated Event List read — PASS;
+- granular stored-event mutation with independent full readback/restoration — PASS;
+- fresh authoritative reread after an independent/manual Logic edit — PASS.
+
+Remaining Logic-domain uncertainty is concentrated in mixer control, plug-ins, automation, routing, saved-project reconciliation and audio-region/source mapping.
 
 ### State and safety
 
@@ -96,21 +102,28 @@ Reasoning is provider-independent. Local models are a normal route; manual ChatG
 
 No further broad research phase is planned before coding. Remaining high-value uncertainties are better answered empirically on the target Mac.
 
-## Immediate next step
+## Current POC strategy
 
-Build **`LogicInteroperabilityLab`**, a small native macOS harness focused on the decisive MIDI path:
+Phase-A validation is **decision-oriented, not exhaustive**.
 
-1. identify the selected Logic MIDI region;
-2. enumerate its Event List completely, including events outside the visible viewport;
-3. export a canonical machine-readable snapshot and compare it with a golden fixture;
-4. modify exactly one MIDI event;
-5. re-read and prove that no unrelated event changed;
-6. manually edit the region in Logic;
-7. refresh and prove the lab sees the user's change rather than relying on its own previous state.
+The default rule is:
 
-Those tests answer the hardest part of the distinctive MVP: **complete read → granular edit → manual edit detection**.
+> **Test a distinct architectural connection or failure mode, make the decision it unlocks, then tick it off.**
 
-If Event List MIDI fails, the architecture falls back to exact export/readback plus broader region-level mutation. That would reduce granular MIDI capability but would not invalidate the overall Co-Producer architecture.
+The project does not need broad micro-variation matrices before the architecture is chosen. Compatibility sweeps, stress tests and regression matrices are deferred until there is a product to harden.
+
+The remaining lean Phase-A gates are:
+
+1. virtual MCU/CoreMIDI mixer control;
+2. one representative native plug-in parameter connection;
+3. one representative automation control connection;
+4. one representative routing/send connection, plus sidechain only if needed as a distinct relationship;
+5. useful saved `.logicx` reconciliation;
+6. useful audio-region/source mapping.
+
+Human involvement should be reserved for genuine decisions and unavoidable Logic/macOS setup. Preferred test shape is one short setup, one command, unattended execution, automatic restoration/verification, and one evidence package.
+
+See [Current POC validation status](docs/poc/validation-status.md).
 
 ## MVP
 
@@ -129,6 +142,7 @@ Start with:
 - [Research 4 synthesis](docs/research/research-4-final-synthesis.md)
 - [Architectural kill tests](docs/poc/architectural-kill-tests.md)
 - [Ordered POC plan](docs/poc/test-plan.md)
+- [Current POC validation status](docs/poc/validation-status.md)
 - [Architecture Decision Records](docs/adr/README.md)
 - [Full documentation index](docs/README.md)
 
