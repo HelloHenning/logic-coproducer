@@ -40,14 +40,28 @@ record() {
   printf '%s\n' "$1" | tee -a "$RESULTS"
 }
 
+package_evidence() {
+  [[ -d "$OUT" ]] || return 0
+  rm -f "$ZIP"
+  (
+    cd "$TEST_ROOT" || exit 1
+    /usr/bin/zip -qr "$ZIP" "$(basename "$OUT")"
+  ) >/dev/null 2>&1 || true
+}
+
 cleanup() {
   if [[ -n "$BRIDGE_PID" ]] && kill -0 "$BRIDGE_PID" 2>/dev/null; then
     printf 'QUIT\n' >> "$COMMANDS" 2>/dev/null || true
     sleep 0.2
     kill "$BRIDGE_PID" 2>/dev/null || true
   fi
+  package_evidence
 }
 trap cleanup EXIT INT TERM
+
+bridge_alive() {
+  [[ -n "$BRIDGE_PID" ]] && kill -0 "$BRIDGE_PID" 2>/dev/null
+}
 
 json_get() {
   python3 - "$1" "$2" <<'PY'
@@ -70,6 +84,7 @@ wait_status_number_gt() {
   local key="$1" before="$2" timeout="${3:-4}" start now value
   start=$(date +%s)
   while true; do
+    bridge_alive || return 2
     value="$(json_get "$STATUS" "$key")"
     if [[ "$value" =~ ^[0-9]+$ ]] && (( value > before )); then return 0; fi
     now=$(date +%s)
@@ -182,6 +197,7 @@ run_case() {
   local ack_before feedback_before case_ok=1
 
   progress "$idx" 8 10 "$name baseline"
+  bridge_alive || { record "CASE=$name RESULT=FAIL reason=bridge-not-running-before-case"; FAIL=$((FAIL+1)); return; }
   capture_topology "$pre" || { record "CASE=$name RESULT=FAIL reason=baseline-capture"; FAIL=$((FAIL+1)); return; }
   ack_before="$(json_get "$STATUS" commandAck)"; [[ "$ack_before" =~ ^[0-9]+$ ]] || ack_before=0
   feedback_before="$(json_get "$STATUS" "$feedback_key")"; [[ "$feedback_before" =~ ^[0-9]+$ ]] || feedback_before=0
@@ -245,18 +261,29 @@ progress 2 8 10 "Start virtual MCU endpoints"
 "$ROOT/.build/debug/logic-mcu-bridge" --commands "$COMMANDS" --status "$STATUS" --events "$EVENTS" > "$BRIDGE_LOG" 2>&1 &
 BRIDGE_PID=$!
 for _ in $(seq 1 50); do
+  bridge_alive || break
   [[ "$(json_get "$STATUS" ready)" == "true" ]] && break
   sleep 0.1
 done
-if [[ "$(json_get "$STATUS" ready)" != "true" ]]; then
-  record "RESULT=FAIL reason=mcu-bridge-not-ready"
+if [[ "$(json_get "$STATUS" ready)" != "true" ]] || ! bridge_alive; then
+  record "RESULT=FAIL reason=mcu-bridge-not-ready-or-exited"
+  tail -n 40 "$BRIDGE_LOG" 2>/dev/null | tee -a "$RESULTS" || true
   exit 7
 fi
+sleep 0.3
 "$ROOT/.build/debug/logic-surface-explorer" midi-endpoints --out "$OUT/midi-endpoints.json" > "$OUT/midi-endpoints.log" 2>&1 || true
-progress 2 8 100 "Virtual MCU endpoints ready"
+if ! grep -q 'CoProducer MCU To Logic' "$OUT/midi-endpoints.json" 2>/dev/null || \
+   ! grep -q 'CoProducer MCU From Logic' "$OUT/midi-endpoints.json" 2>/dev/null; then
+  record "RESULT=FAIL reason=virtual-mcu-endpoints-not-visible-to-second-coremidi-client"
+  cat "$OUT/midi-endpoints.log" 2>/dev/null | tee -a "$RESULTS" || true
+  tail -n 40 "$BRIDGE_LOG" 2>/dev/null | tee -a "$RESULTS" || true
+  exit 7
+fi
+progress 2 8 100 "Virtual MCU endpoints ready and independently visible"
 
 progress 3 8 10 "Logic control-surface binding"
-sleep 6
+sleep 2
+bridge_alive || { record "RESULT=FAIL reason=mcu-bridge-exited-before-logic-binding"; exit 8; }
 packets="$(json_get "$STATUS" hostPacketCount)"; [[ "$packets" =~ ^[0-9]+$ ]] || packets=0
 if (( packets == 0 )); then
   cat <<'SETUP'
@@ -283,6 +310,11 @@ fi
 
 connected=0
 for _ in $(seq 1 1200); do
+  if ! bridge_alive; then
+    record "RESULT=FAIL reason=mcu-bridge-exited-while-waiting-for-logic-binding"
+    tail -n 40 "$BRIDGE_LOG" 2>/dev/null | tee -a "$RESULTS" || true
+    exit 8
+  fi
   packets="$(json_get "$STATUS" hostPacketCount)"; [[ "$packets" =~ ^[0-9]+$ ]] || packets=0
   if (( packets > 0 )); then connected=1; break; fi
   sleep 0.5
@@ -301,11 +333,12 @@ if ! validate_target "$OUT/baseline.json" | tee -a "$RESULTS"; then
 fi
 progress 3 8 100 "Logic binding and target identity verified"
 
-# Wait briefly for Logic's initial motor-fader state dump. This gives us an exact MCU raw value for restoration.
+# Logic normally sends an initial motor-fader state after binding. Wait briefly;
+# do not inject an unsolicited handshake packet just to obtain a baseline.
 fader_raw="$(json_get "$STATUS" lastFader0Raw)"
 for _ in $(seq 1 40); do
   [[ "$fader_raw" =~ ^[0-9]+$ ]] && break
-  printf 'HANDSHAKE\n' >> "$COMMANDS"
+  bridge_alive || break
   sleep 0.25
   fader_raw="$(json_get "$STATUS" lastFader0Raw)"
 done
@@ -342,19 +375,17 @@ fi
 printf 'QUIT\n' >> "$COMMANDS"
 sleep 0.4
 progress 8 8 70 "Package evidence"
-rm -f "$ZIP"
-(
-  cd "$TEST_ROOT" || exit 1
-  /usr/bin/zip -qr "$ZIP" "$(basename "$OUT")"
-) || { record "RESULT=FAIL reason=zip"; exit 43; }
+package_evidence
 progress 8 8 100 "A4 session complete"
 
 record "SUMMARY PASS=$PASS FAIL=$FAIL SKIP=$SKIP"
 if (( FAIL == 0 && SKIP == 0 && PASS == 4 )); then
   record "RESULT=A4_PASS representative_strip=Audio_1 controls=volume,pan,mute,solo restoration=verified"
+  package_evidence
   printf '\nEvidence ZIP: %s\n' "$ZIP"
   exit 0
 fi
 record "RESULT=A4_INCOMPLETE"
+package_evidence
 printf '\nEvidence ZIP: %s\n' "$ZIP"
 exit 20
