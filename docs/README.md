@@ -9,6 +9,7 @@ Broad research is complete and the repository is now in the **architecture → e
 - [Final architecture overview](architecture/overview.md)
 - [Architecture decision table](architecture/decision-table.md)
 - [Research 4 final synthesis](research/research-4-final-synthesis.md)
+- [POC validation status and strategy](poc/validation-status.md)
 - [Architectural kill tests](poc/architectural-kill-tests.md)
 - [Ordered proof-of-concept plan](poc/test-plan.md)
 - [Architecture Decision Records](adr/README.md)
@@ -41,19 +42,22 @@ The first decisive sequence is:
 
 1. complete Event List MIDI read;
 2. one-event granular mutation;
-3. manual MIDI edit detection.
+3. manual/external MIDI edit detection.
 
-This sequence tests whether the project can support its distinctive MVP: **Authoritative MIDI Collaboration**.
+A1 and A2 have passed the POC decision threshold. A3 has proven the core fresh-read/source-of-truth mechanism and is being completed with lean representative external-edit cases.
+
+The current testing rule is **decision-oriented rather than exhaustive**: prove each distinct architectural connection or failure mode with a representative case, then move on. Broader matrices and compatibility sweeps belong to later product hardening.
 
 See:
 
+- [Current POC validation status and strategy](poc/validation-status.md)
 - [Ordered POC plan](poc/test-plan.md)
 - [Final kill-test matrix](poc/architectural-kill-tests.md)
 - [Superseded preliminary kill-test page](poc/preliminary-kill-tests.md)
 
 ## Architecture decisions
 
-The ADR directory separates accepted design constraints from POC-gated hypotheses. In particular, Event List MIDI remains deliberately POC-gated until exhaustive read/write/readback tests pass.
+The ADR directory separates accepted design constraints from POC-gated hypotheses. Event List MIDI is now qualified for the POC's exact-read and representative granular-write path; other domains remain capability-gated until their own representative read/write/readback connection is proven.
 
 ## Schemas
 
