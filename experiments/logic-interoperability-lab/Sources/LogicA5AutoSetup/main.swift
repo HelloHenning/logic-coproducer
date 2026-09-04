@@ -72,7 +72,7 @@ private enum AX {
     }
 }
 
-private struct Candidate: Codable {
+struct Candidate: Codable {
     let path: String
     let role: String?
     let title: String?
@@ -85,7 +85,7 @@ private struct Candidate: Codable {
     let actions: [String]
 }
 
-private struct Ref {
+struct Ref {
     let candidate: Candidate
     let element: AXUIElement
 }
