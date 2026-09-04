@@ -18,22 +18,6 @@ record(){ printf '%s\n' "$1" | tee -a "$RESULTS"; }
 package(){ rm -f "$ZIP";(cd "$TEST_ROOT"&&/usr/bin/zip -qr "$ZIP" "$(basename "$OUT")")>/dev/null 2>&1||true; }
 trap package EXIT
 
-# macOS still ships Bash 3.2. A10 intentionally uses the modern mapfile spelling
-# for a small local array, so provide the equivalent when the shell lacks it.
-if ! type mapfile >/dev/null 2>&1; then
-  mapfile(){
-    local strip=0 array_name line escaped index=0
-    if [[ "${1:-}" == "-t" ]]; then strip=1; shift; fi
-    array_name="${1:-}"; [[ -n "$array_name" ]] || return 2
-    eval "$array_name=()"
-    while IFS= read -r line; do
-      printf -v escaped '%q' "$line"
-      eval "$array_name[$index]=$escaped"
-      index=$((index+1))
-    done
-  }
-fi
-
 summary_get(){
   python3 - "$1" "$2" <<'PY'
 import json,sys
@@ -46,7 +30,7 @@ write_summary(){
   python3 - "$OUT/summary.json" "$A6" "$A7_NORMAL" "$A7_SIDECHAIN" "$A7" "$A8" "$A9" "$A10" "$A11" <<'PY'
 import json,sys
 p,a6,a7n,a7s,a7,a8,a9,a10,a11=sys.argv[1:]
-obj={'schema':'logic-coproducer-foundation-completion/1.0','A6':a6,'A7NormalRouting':a7n,'A7Sidechain':a7s,'A7':a7,'A8':a8,'A9':a9,'A10':a10,'A11':a11}
+obj={'schema':'logic-coproducer-foundation-completion/1.1','A6':a6,'A7NormalRouting':a7n,'A7Sidechain':a7s,'A7':a7,'A8':a8,'A9':a9,'A10':a10,'A11':a11}
 obj['allRequiredGatesPass']=all(obj[k]=='PASS' for k in ('A6','A7','A8','A9','A10','A11'))
 json.dump(obj,open(p,'w'),indent=2,sort_keys=True)
 PY
@@ -62,10 +46,6 @@ safety_stop(){
 record "Logic Co-Producer — revised foundational Logic qualification A6-A11"
 record "Safety policy: ordinary independent failures continue; restoration uncertainty stops the session."
 
-# ---------------------------------------------------------------------------
-# A6-A9: reuse the already CI-qualified batch as a component, not as the final
-# completion claim. It produces its own local evidence zip, which is embedded.
-# ---------------------------------------------------------------------------
 record "STEP=1 component=A6-A9 begin"
 rm -f "$OLD_ZIP"
 bash "$ROOT/Scripts/phase-a-completion-session.sh" > "$OUT/a6-a9-terminal.log" 2>&1
@@ -91,17 +71,12 @@ else
 fi
 record "STEP=1_RESULT A6=${A6} A7_NORMAL=${A7_NORMAL} A8=${A8} A9=${A9}"
 
-# ---------------------------------------------------------------------------
-# A10 + distinct A7 sidechain case.
-# Source in a subshell so the Bash-3 mapfile compatibility function above is
-# inherited without changing global shell state if A10 calls exit.
-# ---------------------------------------------------------------------------
 record "STEP=2 component=A10+A7-sidechain begin"
 mkdir -p "$OUT/a10"
-( source "$ROOT/Scripts/a10-stock-plugin-validation-session.sh" "$OUT/a10" ) > "$OUT/a10-terminal.log" 2>&1
+bash "$ROOT/Scripts/a10-stock-plugin-validation-session-v2.sh" "$OUT/a10" > "$OUT/a10-terminal.log" 2>&1
 rc=$?
 cat "$OUT/a10-terminal.log" | tee -a "$RESULTS"
-if (( rc == 30 )); then safety_stop A10 stock-plugin-or-sidechain-restoration-unproven; fi
+if (( rc == 30 )); then safety_stop A10 stock-plugin-chain-restoration-unproven; fi
 if [[ -f "$OUT/a10/a10-summary.json" ]]; then
   A10="$(summary_get "$OUT/a10/a10-summary.json" A10)"
   A7_SIDECHAIN="$(summary_get "$OUT/a10/a10-summary.json" A7Sidechain)"
@@ -111,12 +86,9 @@ fi
 [[ "$A7_NORMAL" == "PASS" && "$A7_SIDECHAIN" == "PASS" ]] && A7="PASS" || A7="FAIL"
 record "STEP=2_RESULT A10=${A10} A7_SIDECHAIN=${A7_SIDECHAIN} A7_COMBINED=${A7}"
 
-# ---------------------------------------------------------------------------
-# A11: disposable MusicXML track + region + stock-instrument construction.
-# ---------------------------------------------------------------------------
 record "STEP=3 component=A11 begin"
 mkdir -p "$OUT/a11"
-bash "$ROOT/Scripts/a11-construction-validation-session.sh" "$OUT/a11" > "$OUT/a11-terminal.log" 2>&1
+bash "$ROOT/Scripts/a11-construction-validation-session-v2.sh" "$OUT/a11" > "$OUT/a11-terminal.log" 2>&1
 rc=$?
 cat "$OUT/a11-terminal.log" | tee -a "$RESULTS"
 if (( rc == 30 )); then safety_stop A11 disposable-construction-restoration-unproven; fi
