@@ -19,7 +19,8 @@ let package = Package(
         .executable(name: "logic-surface-explorer", targets: ["LogicSurfaceExplorer"]),
         .executable(name: "logic-mcu-bridge", targets: ["LogicMCUBridge"]),
         .executable(name: "logic-midi-smoke-client", targets: ["LogicMIDISmokeClient"]),
-        .executable(name: "logic-a5-auto-setup", targets: ["LogicA5AutoSetup"])
+        .executable(name: "logic-a5-auto-setup", targets: ["LogicA5AutoSetup"]),
+        .executable(name: "logic-a5-safe-roundtrip", targets: ["LogicA5SafeRoundTrip"])
     ],
     targets: [
         .executableTarget(
@@ -73,6 +74,10 @@ let package = Package(
         .executableTarget(
             name: "LogicA5AutoSetup",
             path: "Sources/LogicA5AutoSetup"
+        ),
+        .executableTarget(
+            name: "LogicA5SafeRoundTrip",
+            path: "Sources/LogicA5SafeRoundTrip"
         )
     ]
 )
