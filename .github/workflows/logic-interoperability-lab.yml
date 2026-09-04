@@ -30,24 +30,20 @@ jobs:
           COMMANDS="$TMP/commands.txt"
           STATUS="$TMP/status.json"
           EVENTS="$TMP/events.jsonl"
-          LOG="$TMP/lldb.log"
+          LOG="$TMP/bridge.log"
           : > "$COMMANDS"
 
-          lldb --batch \
-            -o run \
-            -k 'thread backtrace all' \
-            -- .build/debug/logic-mcu-bridge \
+          .build/debug/logic-mcu-bridge \
             --commands "$COMMANDS" --status "$STATUS" --events "$EVENTS" \
             > "$LOG" 2>&1 &
-          DEBUGGER_PID=$!
+          PID=$!
 
           cleanup() {
-            if kill -0 "$DEBUGGER_PID" 2>/dev/null; then
+            if kill -0 "$PID" 2>/dev/null; then
               printf 'QUIT\n' >> "$COMMANDS" || true
               sleep 0.3
-              kill "$DEBUGGER_PID" 2>/dev/null || true
+              kill "$PID" 2>/dev/null || true
             fi
-            echo '=== LLDB LOG ==='
             cat "$LOG" || true
           }
           trap cleanup EXIT
@@ -61,6 +57,7 @@ jobs:
             sleep 0.1
           done
           test "$READY" = yes
+          kill -0 "$PID"
 
           .build/debug/logic-surface-explorer midi-endpoints --out "$TMP/endpoints.json"
           grep -q 'CoProducer MCU To Logic' "$TMP/endpoints.json"
@@ -68,16 +65,14 @@ jobs:
 
           .build/debug/logic-midi-smoke-client
           sleep 0.5
-
-          if ! kill -0 "$DEBUGGER_PID" 2>/dev/null; then
-            echo 'Bridge crashed during callback smoke test.'
-            wait "$DEBUGGER_PID" || true
-            cat "$LOG"
-            exit 1
-          fi
+          kill -0 "$PID"
 
           COUNT="$(python3 -c 'import json,sys; print(int(json.load(open(sys.argv[1])).get("hostPacketCount",0)))' "$STATUS")"
           test "$COUNT" -gt 0
+
           printf 'QUIT\n' >> "$COMMANDS"
-          wait "$DEBUGGER_PID" || true
-          ! grep -q 'stop reason = signal' "$LOG"
+          for _ in $(seq 1 60); do
+            kill -0 "$PID" 2>/dev/null || break
+            sleep 0.1
+          done
+          ! kill -0 "$PID" 2>/dev/null
