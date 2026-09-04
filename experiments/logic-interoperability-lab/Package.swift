@@ -25,7 +25,7 @@ let package = Package(
         .executable(name: "logic-a5-safe-roundtrip", targets: ["LogicA5SafeRoundTrip"]),
         .executable(name: "logic-phase-a-probe", targets: ["LogicPhaseAProbe"]),
         .executable(name: "logic-foundation-probe", targets: ["LogicFoundationProbe"]),
-        .executable(name: "logic-foundation-repair-probe", targets: ["LogicFoundationRepairProbe"])
+        .executable(name: "logic-foundation-repair-probe", targets: ["LogicFoundationRepairProbe2"])
     ],
     targets: [
         .executableTarget(name: "LogicInteroperabilityLab", path: "Sources/LogicInteroperabilityLab"),
@@ -46,6 +46,6 @@ let package = Package(
         .executableTarget(name: "LogicA5SafeRoundTrip", path: "Sources/LogicA5SafeRoundTrip"),
         .executableTarget(name: "LogicPhaseAProbe", path: "Sources/LogicPhaseAProbe"),
         .executableTarget(name: "LogicFoundationProbe", path: "Sources/LogicFoundationProbe"),
-        .executableTarget(name: "LogicFoundationRepairProbe", path: "Sources/LogicFoundationRepairProbe")
+        .executableTarget(name: "LogicFoundationRepairProbe2", path: "Sources/LogicFoundationRepairProbe2")
     ]
 )
