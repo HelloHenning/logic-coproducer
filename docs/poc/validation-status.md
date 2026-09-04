@@ -40,6 +40,8 @@ Preferred test shape:
 4. one evidence ZIP;
 5. automated restoration and verification.
 
+If a runner requires human input or a Logic/macOS setup action, it must **wait indefinitely for explicit Terminal confirmation** (normally pressing Return) rather than timing out. The user should be free to leave the computer and come back later without losing the run. Automatic polling with a bounded timeout is reserved for machine-only/background-safe steps that do not require human attention.
+
 Independent tests should continue after ordinary failures. Only a safety-critical condition, especially an inability to restore protected Logic state, should stop a batch.
 
 No filler tests, no artificial minimum runtime, and no repeated copy/paste loops merely to gather more examples of an already-qualified mechanism.
