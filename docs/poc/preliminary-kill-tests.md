@@ -1,11 +1,9 @@
-# Preliminary Kill Tests — Superseded
+# Preliminary kill tests
 
-This pre-Research-4 document has been superseded by the finalized architecture and POC plan.
+This page is superseded.
 
 Use:
 
-- [Architectural kill tests](architectural-kill-tests.md)
-- [Ordered proof-of-concept plan](test-plan.md)
-- [Research 4 final synthesis](../research/research-4-final-synthesis.md)
-
-The historical file is retained only so older links do not break.
+- [`architectural-kill-tests.md`](architectural-kill-tests.md) for the final architectural kill-test matrix;
+- [`test-plan.md`](test-plan.md) for the ordered lean POC gates;
+- [`validation-status.md`](validation-status.md) for current evidence, completed decisions, and the decision-oriented stop condition.
