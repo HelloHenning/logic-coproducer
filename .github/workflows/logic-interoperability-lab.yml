@@ -35,7 +35,7 @@ jobs:
 
           lldb --batch \
             -o run \
-            -o 'thread backtrace all' \
+            -k 'thread backtrace all' \
             -- .build/debug/logic-mcu-bridge \
             --commands "$COMMANDS" --status "$STATUS" --events "$EVENTS" \
             > "$LOG" 2>&1 &
