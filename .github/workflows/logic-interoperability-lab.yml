@@ -30,44 +30,54 @@ jobs:
           COMMANDS="$TMP/commands.txt"
           STATUS="$TMP/status.json"
           EVENTS="$TMP/events.jsonl"
-          LOG="$TMP/bridge.log"
+          LOG="$TMP/lldb.log"
           : > "$COMMANDS"
-          .build/debug/logic-mcu-bridge --commands "$COMMANDS" --status "$STATUS" --events "$EVENTS" > "$LOG" 2>&1 &
-          PID=$!
+
+          lldb --batch \
+            -o run \
+            -o 'thread backtrace all' \
+            -- .build/debug/logic-mcu-bridge \
+            --commands "$COMMANDS" --status "$STATUS" --events "$EVENTS" \
+            > "$LOG" 2>&1 &
+          DEBUGGER_PID=$!
+
           cleanup() {
-            if kill -0 "$PID" 2>/dev/null; then
+            if kill -0 "$DEBUGGER_PID" 2>/dev/null; then
               printf 'QUIT\n' >> "$COMMANDS" || true
-              sleep 0.2
-              kill "$PID" 2>/dev/null || true
+              sleep 0.3
+              kill "$DEBUGGER_PID" 2>/dev/null || true
             fi
+            echo '=== LLDB LOG ==='
             cat "$LOG" || true
           }
           trap cleanup EXIT
 
           READY=no
-          for _ in $(seq 1 80); do
+          for _ in $(seq 1 120); do
             if [[ -f "$STATUS" ]]; then
               READY="$(python3 -c 'import json,sys; print("yes" if json.load(open(sys.argv[1])).get("ready") else "no")' "$STATUS" 2>/dev/null || echo no)"
               [[ "$READY" == "yes" ]] && break
             fi
             sleep 0.1
           done
-
           test "$READY" = yes
-          kill -0 "$PID"
+
           .build/debug/logic-surface-explorer midi-endpoints --out "$TMP/endpoints.json"
           grep -q 'CoProducer MCU To Logic' "$TMP/endpoints.json"
           grep -q 'CoProducer MCU From Logic' "$TMP/endpoints.json"
 
           .build/debug/logic-midi-smoke-client
-          sleep 0.3
-          kill -0 "$PID"
+          sleep 0.5
+
+          if ! kill -0 "$DEBUGGER_PID" 2>/dev/null; then
+            echo 'Bridge crashed during callback smoke test.'
+            wait "$DEBUGGER_PID" || true
+            cat "$LOG"
+            exit 1
+          fi
 
           COUNT="$(python3 -c 'import json,sys; print(int(json.load(open(sys.argv[1])).get("hostPacketCount",0)))' "$STATUS")"
           test "$COUNT" -gt 0
           printf 'QUIT\n' >> "$COMMANDS"
-          for _ in $(seq 1 40); do
-            kill -0 "$PID" 2>/dev/null || break
-            sleep 0.1
-          done
-          ! kill -0 "$PID" 2>/dev/null
+          wait "$DEBUGGER_PID" || true
+          ! grep -q 'stop reason = signal' "$LOG"
