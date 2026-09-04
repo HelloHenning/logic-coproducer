@@ -26,7 +26,8 @@ let package = Package(
         .executable(name: "logic-phase-a-probe", targets: ["LogicPhaseAProbe"]),
         .executable(name: "logic-foundation-probe", targets: ["LogicFoundationProbe"]),
         .executable(name: "logic-foundation-repair-probe", targets: ["LogicFoundationRepairProbe2"]),
-        .executable(name: "logic-plugin-slot-surface-probe", targets: ["LogicPluginSlotSurfaceProbe"])
+        .executable(name: "logic-plugin-slot-surface-probe", targets: ["LogicPluginSlotSurfaceProbe"]),
+        .executable(name: "logic-plugin-slot-surface-probe-v2", targets: ["LogicPluginSlotSurfaceProbe2"])
     ],
     targets: [
         .executableTarget(name: "LogicInteroperabilityLab", path: "Sources/LogicInteroperabilityLab"),
@@ -48,6 +49,7 @@ let package = Package(
         .executableTarget(name: "LogicPhaseAProbe", path: "Sources/LogicPhaseAProbe"),
         .executableTarget(name: "LogicFoundationProbe", path: "Sources/LogicFoundationProbe"),
         .executableTarget(name: "LogicFoundationRepairProbe2", path: "Sources/LogicFoundationRepairProbe2"),
-        .executableTarget(name: "LogicPluginSlotSurfaceProbe", path: "Sources/LogicPluginSlotSurfaceProbe")
+        .executableTarget(name: "LogicPluginSlotSurfaceProbe", path: "Sources/LogicPluginSlotSurfaceProbe"),
+        .executableTarget(name: "LogicPluginSlotSurfaceProbe2", path: "Sources/LogicPluginSlotSurfaceProbe2")
     ]
 )
