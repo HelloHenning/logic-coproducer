@@ -9,9 +9,11 @@ ZIP="${TEST_ROOT}/coproducer-a5-plugin-session.zip"
 EXPECTED_TRACK="Studio Grand"
 QUERIES="Stereo Mic A,Stereo Mic B,Mono Mic,Main Volume,Pedal Noise,Key Noise,Release Samples,Sympathetic Resonance"
 RESULTS="${OUT}/results.txt"
+INTERRUPTED=0
 
 mkdir -p "$OUT"
 : > "$RESULTS"
+chmod 700 "$OUT" 2>/dev/null || true
 cd "$ROOT" || exit 2
 
 bar() {
@@ -37,7 +39,21 @@ package_evidence() {
   rm -f "$ZIP"
   (cd "$TEST_ROOT" && /usr/bin/zip -qr "$ZIP" "$(basename "$OUT")") >/dev/null 2>&1 || true
 }
-trap package_evidence EXIT INT TERM
+
+on_interrupt() {
+  INTERRUPTED=1
+  record "NOTICE=interrupt-requested will-stop-at-safe-checkpoint"
+}
+
+trap package_evidence EXIT
+trap on_interrupt INT TERM HUP
+
+abort_if_interrupted() {
+  if (( INTERRUPTED )); then
+    record "RESULT=A5_FAIL reason=interrupted-before-mutation protected_state=unchanged"
+    exit 130
+  fi
+}
 
 capture_topology() {
   local path="$1"
@@ -129,6 +145,32 @@ print('PASS exact_plugin_restore semantic_parameters='+str(len(bv)))
 PY
 }
 
+verify_roundtrip_json() {
+  local path="$1"
+  python3 - "$path" <<'PY'
+import json,sys,math
+x=json.load(open(sys.argv[1]))
+if x.get('result')!='PASS':
+    print('FAIL roundtrip_json_result='+str(x.get('result'))+' reason='+str(x.get('reason')))
+    sys.exit(2)
+if x.get('restorationVerified') is not True:
+    print('FAIL roundtrip_restoration_not_verified')
+    sys.exit(3)
+before=x.get('before'); changed=x.get('changed'); restored=x.get('restored')
+if before is None or changed is None or restored is None:
+    print('FAIL roundtrip_missing_values')
+    sys.exit(4)
+if math.isclose(float(before),float(changed),rel_tol=0.0,abs_tol=1e-9):
+    print('FAIL roundtrip_change_not_observed')
+    sys.exit(5)
+if not math.isclose(float(before),float(restored),rel_tol=0.0,abs_tol=1e-6):
+    print('FAIL roundtrip_restore_value_mismatch')
+    sys.exit(6)
+print('PASS parameter=%r before=%r changed=%r restored=%r target=%s' % (
+    x.get('query'),before,changed,restored,(x.get('target') or {}).get('path','')))
+PY
+}
+
 progress 1 5 10 "Build and safety preflight"
 if ! swift build > "$OUT/build.log" 2>&1; then
   record "RESULT=A5_FAIL reason=build"
@@ -140,90 +182,105 @@ if ! "$ROOT/.build/debug/logic-lab" doctor > "$OUT/doctor.log" 2>&1; then
   cat "$OUT/doctor.log"
   exit 20
 fi
+abort_if_interrupted
 progress 1 5 100 "Build and safety preflight"
 
 progress 2 5 10 "Automatically prepare Studio Grand / Studio Piano UI"
 AUTO_SETUP="$OUT/a5-auto-setup.json"
 if ! "$ROOT/.build/debug/logic-a5-auto-setup" --out "$AUTO_SETUP" > "$OUT/a5-auto-setup.log" 2>&1; then
   cat "$OUT/a5-auto-setup.log" | tee -a "$RESULTS"
-  record "RESULT=A5_FAIL reason=automatic-plugin-ui-setup"
+  record "RESULT=A5_FAIL reason=automatic-plugin-ui-setup protected_parameter_state=unchanged"
   exit 20
 fi
 cat "$OUT/a5-auto-setup.log" | tee -a "$RESULTS"
 
 SETUP_TOPOLOGY="$OUT/setup-topology.json"
 if ! capture_topology "$SETUP_TOPOLOGY" || ! track_identity_ok "$SETUP_TOPOLOGY" | tee -a "$RESULTS"; then
-  record "RESULT=A5_FAIL reason=studio-grand-track-identity"
+  record "RESULT=A5_FAIL reason=studio-grand-track-identity protected_parameter_state=unchanged"
   exit 20
 fi
 SETUP_INVENTORY="$OUT/setup-plugin-inventory.json"
 if ! capture_plugin_inventory "$SETUP_INVENTORY"; then
-  record "RESULT=A5_FAIL reason=setup-plugin-inventory"
+  record "RESULT=A5_FAIL reason=setup-plugin-inventory protected_parameter_state=unchanged"
   exit 20
 fi
 CHOSEN="$(choose_parameter "$SETUP_INVENTORY")" || {
   cat "${SETUP_INVENTORY%.json}.log" | tee -a "$RESULTS"
-  record "RESULT=A5_FAIL reason=no-safe-semantic-parameter"
+  record "RESULT=A5_FAIL reason=no-safe-semantic-parameter protected_parameter_state=unchanged"
   exit 20
 }
 printf '%s\n' "$CHOSEN" > "$OUT/chosen-parameter.txt"
 record "PASS native_plugin=Studio_Piano track=Studio_Grand chosen_parameter=${CHOSEN// /_} instance_identity=verified"
+abort_if_interrupted
 progress 2 5 100 "Native Studio Piano semantic parameter surface ready"
 
 progress 3 5 30 "Capture authoritative semantic parameter baseline"
 BASELINE="$OUT/plugin-baseline.json"
 if ! capture_plugin_inventory "$BASELINE"; then
-  record "RESULT=A5_FAIL reason=baseline-inventory"
+  record "RESULT=A5_FAIL reason=baseline-inventory protected_parameter_state=unchanged"
   exit 20
 fi
 BASE_CHOSEN="$(choose_parameter "$BASELINE")" || {
-  record "RESULT=A5_FAIL reason=baseline-parameter-resolution"
+  record "RESULT=A5_FAIL reason=baseline-parameter-resolution protected_parameter_state=unchanged"
   exit 20
 }
 if [[ "$BASE_CHOSEN" != "$CHOSEN" ]]; then
-  record "RESULT=A5_FAIL reason=parameter-identity-not-deterministic"
+  record "RESULT=A5_FAIL reason=parameter-identity-not-deterministic protected_parameter_state=unchanged"
   exit 20
 fi
+abort_if_interrupted
 progress 3 5 100 "Authoritative semantic baseline captured"
 
-progress 4 5 25 "One parameter write with fresh independent readback"
+progress 4 5 20 "One parameter write, independent readback, mandatory restore"
 ROUNDTRIP="$OUT/plugin-roundtrip.json"
-if ! "$ROOT/.build/debug/logic-control-probe" numeric-roundtrip --query "$CHOSEN" --out "$ROUNDTRIP" > "$OUT/plugin-roundtrip.log" 2>&1; then
-  cat "$OUT/plugin-roundtrip.log" | tee -a "$RESULTS"
-  record "RESULT=A5_FAIL reason=parameter-roundtrip"
-  exit 20
-fi
-cat "$OUT/plugin-roundtrip.log" | tee -a "$RESULTS"
-python3 - "$ROUNDTRIP" <<'PY' | tee -a "$RESULTS"
-import json,sys
-x=json.load(open(sys.argv[1]))
-if x.get('result')!='PASS':
-    print('FAIL roundtrip_json_result='+str(x.get('result')))
-    sys.exit(2)
-print('PASS parameter=%r before=%r changed=%r restored=%r target=%s' % (
-    x.get('query'),x.get('before'),x.get('changed'),x.get('restored'),(x.get('target') or {}).get('path','')))
-PY
-if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
-  record "RESULT=A5_FAIL reason=roundtrip-json-verification"
-  exit 20
-fi
-progress 4 5 100 "Semantic parameter round-trip verified"
+ROUNDTRIP_LOG="$OUT/plugin-roundtrip.log"
 
-progress 5 5 25 "Independent final restoration verification"
+# The intentional mutation is a tiny protected critical section. Ignore terminal
+# interruption signals in this child so Ctrl-C/TERM/HUP cannot strand the value
+# between the write and the binary's verified restoration attempt.
+trap '' INT TERM HUP
+"$ROOT/.build/debug/logic-a5-safe-roundtrip" --query "$CHOSEN" --out "$ROUNDTRIP" > "$ROUNDTRIP_LOG" 2>&1
+ROUNDTRIP_RC=$?
+trap on_interrupt INT TERM HUP
+cat "$ROUNDTRIP_LOG" | tee -a "$RESULTS"
+
+ROUNDTRIP_JSON_OK=0
+if [[ -f "$ROUNDTRIP" ]] && verify_roundtrip_json "$ROUNDTRIP" | tee -a "$RESULTS"; then
+  ROUNDTRIP_JSON_OK=1
+fi
+progress 4 5 75 "Round-trip finished; verify protected baseline independently"
+
+# Always perform the independent final baseline comparison after any attempted
+# mutation, including ordinary round-trip failures. A mismatch is safety-critical.
 FINAL="$OUT/plugin-final.json"
 if ! capture_plugin_inventory "$FINAL"; then
-  record "RESULT=A5_FAIL reason=final-inventory"
-  exit 20
+  record "RESULT=A5_SAFETY_FAIL reason=final-inventory-unavailable restoration=unproven"
+  exit 30
 fi
 if ! compare_plugin_inventory "$BASELINE" "$FINAL" | tee -a "$RESULTS"; then
-  record "RESULT=A5_FAIL reason=final-restore-mismatch"
-  exit 20
+  record "RESULT=A5_SAFETY_FAIL reason=final-restore-mismatch restoration=unproven"
+  exit 30
 fi
+record "PASS protected_plugin_baseline=independently_verified"
+progress 4 5 100 "Protected Studio Piano baseline independently restored"
+
+progress 5 5 30 "Verify fixture identity and package evidence"
 FINAL_TOPOLOGY="$OUT/final-topology.json"
 if ! capture_topology "$FINAL_TOPOLOGY" || ! track_identity_ok "$FINAL_TOPOLOGY" | tee -a "$RESULTS"; then
-  record "RESULT=A5_FAIL reason=track-identity-changed"
+  record "RESULT=A5_FAIL reason=track-identity-changed restoration=verified"
   exit 20
 fi
+
+if (( INTERRUPTED )); then
+  record "RESULT=A5_FAIL reason=interrupted-after-safe-restoration restoration=verified"
+  exit 130
+fi
+
+if (( ROUNDTRIP_RC != 0 || ROUNDTRIP_JSON_OK != 1 )); then
+  record "RESULT=A5_FAIL reason=parameter-roundtrip restoration=verified roundtrip_exit=${ROUNDTRIP_RC}"
+  exit 20
+fi
+
 progress 5 5 75 "Package evidence"
 package_evidence
 progress 5 5 100 "A5 session complete"
