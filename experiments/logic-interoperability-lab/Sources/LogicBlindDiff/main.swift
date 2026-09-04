@@ -36,6 +36,25 @@ private struct CanonicalRow: Codable, Hashable, Comparable {
     }
 }
 
+private struct SemanticRow: Hashable, Comparable {
+    let position: String
+    let status: String
+    let channel: String
+    let numberRaw: String
+    let numberDescription: String
+    let valueDescription: String
+    let length: String
+
+    static func < (lhs: SemanticRow, rhs: SemanticRow) -> Bool {
+        lhs.sortKey < rhs.sortKey
+    }
+
+    private var sortKey: String {
+        [position, status, channel, numberRaw, numberDescription, valueDescription, length]
+            .joined(separator: "\u{1f}")
+    }
+}
+
 private struct DiffResult: Codable {
     let schema: String
     let generatedAt: String
@@ -77,6 +96,18 @@ private func canonical(_ row: RawRow) -> CanonicalRow {
     )
 }
 
+private func semantic(_ row: RawRow) -> SemanticRow {
+    SemanticRow(
+        position: normalizeWhitespace(row.position),
+        status: normalizeWhitespace(row.status),
+        channel: normalizeWhitespace(row.channelDescription ?? row.channelRaw),
+        numberRaw: normalizeWhitespace(row.numberRaw),
+        numberDescription: normalizeWhitespace(row.numberDescription),
+        valueDescription: normalizeWhitespace(row.valueDescription),
+        length: normalizeWhitespace(row.length)
+    )
+}
+
 private func load<T: Decodable>(_ type: T.Type, path: String) throws -> T {
     try JSONDecoder().decode(type, from: Data(contentsOf: URL(fileURLWithPath: path)))
 }
@@ -108,13 +139,28 @@ private func multisetDifference(_ lhs: [CanonicalRow], _ rhs: [CanonicalRow]) ->
     return output.sorted()
 }
 
+private func semanticDifference(_ lhs: [SemanticRow], _ rhs: [SemanticRow]) -> [SemanticRow] {
+    var counts: [SemanticRow: Int] = [:]
+    for row in rhs { counts[row, default: 0] += 1 }
+    var output: [SemanticRow] = []
+    for row in lhs {
+        let count = counts[row, default: 0]
+        if count > 0 {
+            counts[row] = count - 1
+        } else {
+            output.append(row)
+        }
+    }
+    return output.sorted()
+}
+
 private func nowISO() -> String {
     ISO8601DateFormatter().string(from: Date())
 }
 
 let args = Array(CommandLine.arguments.dropFirst())
 guard let command = args.first else {
-    fputs("Usage: logic-blind-diff compare --pre PRE --post POST [--out FILE] | verify --diff DIFF --plan PLAN\n", stderr)
+    fputs("Usage: logic-blind-diff compare --pre PRE --post POST [--out FILE] | verify --diff DIFF --plan PLAN | assert-equal --pre PRE --post POST | assert-semantic-equal --pre PRE --post POST\n", stderr)
     exit(2)
 }
 
@@ -189,6 +235,27 @@ case "assert-equal":
         }
     } catch {
         fputs("Equality check failed: \(error)\n", stderr)
+        exit(5)
+    }
+
+case "assert-semantic-equal":
+    guard let prePath = option("--pre", args: args), let postPath = option("--post", args: args) else {
+        fputs("assert-semantic-equal requires --pre and --post.\n", stderr)
+        exit(2)
+    }
+    do {
+        let pre = try load(Snapshot.self, path: prePath).rows.map(semantic)
+        let post = try load(Snapshot.self, path: postPath).rows.map(semantic)
+        let removed = semanticDifference(pre, post)
+        let added = semanticDifference(post, pre)
+        if removed.isEmpty && added.isEmpty {
+            print("RESULT=PASS semantic_equal rows=\(pre.count)")
+        } else {
+            print("RESULT=FAIL semantic_removed=\(removed.count) semantic_added=\(added.count)")
+            exit(20)
+        }
+    } catch {
+        fputs("Semantic equality check failed: \(error)\n", stderr)
         exit(5)
     }
 
