@@ -1,204 +1,153 @@
 # POC Validation Status and Strategy
 
-_Status: active — 2026-09-04_
+_Status: paused at user-requested checkpoint — 2026-09-04_
 
-This document records the current interoperability evidence, testing strategy, and handoff state for the Logic Co-Producer proof of concept.
-
-## Current handoff
+This document is the current handoff for the Logic Co-Producer interoperability proof of concept.
 
 Active branch: `poc/logic-interoperability-lab`
 
 Draft PR: #5
 
-Phase-A / foundational Logic gates:
+Detailed pause / feasibility memo: `docs/poc/feasibility-checkpoint-2026-09-04.md`
+
+## Current gate status
 
 - A0 — sufficient
-- A1 — PASS / complete
-- A2 — PASS / complete
-- A3 — PASS / complete
-- A4 — PASS / complete
-- A5 — PASS / complete
-- A6 — pending target-Mac validation
-- A7 — pending target-Mac validation; must include a true sidechain relationship, not only normal output routing
-- A8 — pending target-Mac validation
-- A9 — pending target-Mac validation
-- A10 — pending: stock Logic plug-in insertion and chain control (#12)
+- A1 — PASS / complete: authoritative complete Event List MIDI read
+- A2 — PASS / complete: verified granular MIDI mutation + restoration
+- A3 — PASS / complete: manual/external edit detection and refresh
+- A4 — PASS / complete: virtual Mackie Control/CoreMIDI mixer control
+- A5 — PASS / complete for existing native plug-in parameter transactions
+- A6 — pending: automation control
+- A7 — pending: routing / sends / true sidechain
+- A8 — pending: saved `.logicx` reconciliation
+- A9 — pending: audio-region/source mapping
+- A10 — pending: stock Logic effect insertion and chain construction (#12)
 - A11 — pending: representative track/region/stock-instrument construction (#13)
 
-### Immediate next action
+## Latest target-Mac evidence
 
-**Do not run the existing `Scripts/phase-a-completion-session.sh` as the final completion batch.**
+### Plug-in-slot census v4 — FAIL before mutation, but useful narrowing
 
-The 2026-09-04 full-scope audit found that the A0–A9 checklist had become narrower than the original product architecture. In particular:
+Target environment remained:
 
-- A5 proves parameter control on an already-existing native Studio Piano instance but does not prove `insert_plugin` or stock processing-chain construction;
-- the current A7 runner exercises a normal output edge but not the materially distinct sidechain relationship;
-- the product action boundary includes region create/move/duplicate and instrument/source changes, but no representative construction gate was present.
+- macOS 26.4.1 (25E253)
+- Logic Pro 12.0.1
+- Accessibility trusted
+- synthetic project `Project`
 
-See `docs/poc/scope-audit-2026-09-04.md`.
+Result:
 
-The next user-facing test should therefore be a **revised single unattended A6–A11 completion batch** that preserves the same safety model: independent gate results, automatic restoration, continuation after ordinary independent failures, and immediate stop only when protected Logic state cannot be proven restored.
+`RESULT=FAIL reason=mixer-track-strip-not-unique count=0`
 
-The existing A6–A9 runner and `docs/research/research-7-phase-a-a6-a9-interface-contracts.md` remain useful implementation/evidence foundations, but the runner must be extended/reviewed before target-Mac execution.
+The important evidence is structural:
 
-## Decision-oriented POC rule
+- v4 correctly found the real main Mixer as `AXLayoutArea description="Mixer"` with **8 direct channel-strip layout items**;
+- it also found the smaller 2-strip Inspector-like Mixer candidate and did not choose it;
+- it separately recognized the Tracks-area `Track 1 “Audio 1”` header as a lookalike, so the v3 mistake is fixed;
+- however, none of the eight direct Mixer strip elements exposes enough direct semantic text for the current `Audio 1` name matcher, therefore exact Mixer-strip identity could not yet be proven;
+- no mutation was attempted.
 
-The POC is not an exhaustive product-certification program.
+**Decision:** Mixer discovery itself is no longer the unknown. The remaining A10 blocker at this exact point is semantic track-to-strip identity / insert-slot enumeration.
 
-> **Test a distinct architectural connection or failure mode, make the decision it unlocks, then tick it off.**
+This is progress in narrowing the interface, but it is **not** a new qualified product capability.
 
-Broaden a test only when a representative result is ambiguous, fails, or leaves a materially different architectural boundary untested. Do not accumulate compatibility matrices or repeated micro-variations after the mechanism is qualified.
+## Qualified architecture so far
 
-Human time is reserved for decisions and unavoidable Logic/macOS setup. Preferred test shape:
+### Authoritative MIDI state
 
-1. one short setup block;
-2. one command;
-3. unattended execution;
-4. one evidence ZIP;
-5. automatic restoration and verification.
+The hydrated Event List observer reconstructs the complete 267-event synthetic fixture, including off-screen rows, and repeated reads match the expected semantic state.
 
-No filler waits or artificial minimum runtimes.
+**Decision:** Logic's Event List can act as an authoritative live-state adapter for the qualified stored-MIDI subset.
 
-## Safety rules
+### Verified MIDI mutation
 
-- Use the synthetic fixture, never unpublished/private songs.
-- Never treat an AX/UI action return value as verification.
-- No mutation is allowed until its target identity and a readable baseline are independently established.
-- Every reversible test restores its baseline and independently verifies restoration.
-- Ordinary failures before mutation may continue to the next independent gate.
-- Any state-changing test whose restoration cannot be proven becomes a safety failure and stops later mutation.
-- Raw screenshots, AX snapshots and evidence ZIPs stay local unless sanitized.
+Representative note changes were independently reread as exactly the intended semantic change, collateral state was checked, and the original state was restored exactly.
 
-## Qualified evidence
+**Decision:** granular Event List mutation is viable for the qualified fields.
 
-### A1 — complete Event List MIDI read
+### Manual edit refresh
 
-**PASS / complete.**
-
-The hydrated Event List observer reconstructs the complete 267-event synthetic channel fixture, including rows outside the initial viewport, and repeated reads match the golden fixture. Qualified stored-event fields include position, event type, channel, note/event number, displayed value and duration for the exercised classes.
-
-**Decision:** the Event List is a viable authoritative live-state adapter for the qualified stored-MIDI subset.
-
-### A2 — granular MIDI mutation
-
-**PASS / complete.**
-
-Representative pitch writes were independently reread as exactly the intended semantic change, with no collateral canonical changes and exact restoration.
-
-**Decision:** granular Event List mutation is viable for the qualified fields; broader matrices are deferred to product hardening.
-
-### A3 — external/manual edit detection
-
-**PASS / complete.**
-
-A direct Logic edit independent of observer intent was detected by a fresh authoritative reread, repeated deterministically, and restored exactly. A later over-broad external-actor velocity experiment exposed a rollback bug in the test actor, not a source-of-truth failure; the safety wrapper detected the exact mismatch and the fixture was subsequently recovered and reverified.
+A direct user edit in Logic was detected by a fresh authoritative reread independent of prior mutation intent and restored exactly.
 
 **Decision:** fresh Logic state supersedes stale controller/AI intent.
 
-### Mixer AX pre-qualification
+### Mixer control
 
-Direct AX Volume and Pan round-trips worked on visible mixer strips, while AX Mute/Solo actions reported success without an independently observed state change.
+Direct AX Volume/Pan round-trips were useful pre-evidence, but AX Mute/Solo actions were not independently reliable. A virtual Mackie Control/CoreMIDI bridge then qualified Volume, Pan, Mute and Solo with Logic-to-controller feedback and exact restoration.
 
-**Decision:** AX remains useful for semantic context and readback, but not as the primary mixer transaction plane.
+**Decision:** virtual MCU/CoreMIDI is the primary qualified mixer transaction plane; AX is retained for context/readback.
 
-### A4 — virtual MCU/CoreMIDI mixer
+### Existing native plug-in parameter control
 
-**PASS / complete.**
+On `Studio Grand` / Studio Piano, virtual Mackie Control exposed Logic's semantic parameter names and values. Representative `Key Noise` changed 35 → 36 → 35 with fresh Logic feedback and final identity verification.
 
-The virtual Mackie Control bridge produced bidirectional controller↔Logic operation for Volume, Pan, Mute and Solo on representative strip `Audio 1`, with independent Logic readback and exact final restoration.
+**Decision:** MCU is qualified for representative native plug-in parameter transactions on an already-existing compatible instance.
 
-**Decision:** virtual MCU/CoreMIDI is the qualified representative mixer-control plane.
+**Boundary:** this does not prove insertion, slot identity, chain construction, bypass/removal, or effect-class control. Those remain A10.
 
-### A5 — native plug-in parameter control
+## Important prior art discovered before the pause
 
-**PASS / complete for the parameter-transaction mechanism.**
+The public MIT-licensed repository `MongLong0214/logic-pro-mcp` contains directly relevant modern Logic automation code, including:
 
-The target-Mac A5 evidence proves:
+- Logic 12.x Mixer-container selection;
+- mixer-strip Audio FX insert-slot enumeration;
+- plug-in inventory;
+- a fail-closed verified stock plug-in insertion path with post-insert inventory readback;
+- track creation/duplication operations;
+- automation-mode control;
+- software-instrument assignment;
+- deterministic MIDI/SMF import with region readback.
 
-- exact context: track `Studio Grand`, native Studio Piano;
-- AX resolves track/instrument context only;
-- virtual Mackie Control enters Instrument Mixer/Edit and receives Logic's own parameter names and values;
-- Studio Piano page exposed `Inst`, `MaiVol`, `PedNoi`, `KeyNoi`, `RelSam`, `SymRes`;
-- representative parameter `Key Noise` baseline = 35%;
-- one MCU V-Pot step produced fresh Logic feedback = 36%;
-- mandatory reverse step plus fresh Name/Value rerender returned 35%;
-- final `Studio Grand` identity check passed.
+This materially improves the feasibility outlook. Before asking for more target-Mac interaction, the next development session should inspect/adapt these proven patterns rather than continue blind bespoke AX discovery.
 
-Final result:
+## Feasibility assessment at the pause
 
-`RESULT=A5_PASS track=Studio_Grand plugin=Studio_Piano control_plane=virtual_MCU parameter=Key_Noise before=35 changed=36 restored=35 instance_identity=verified read_write_readback=verified restoration=verified`
+### Narrow authoritative collaboration MVP
 
-The earlier Controls-view AX failures remain useful negative evidence: Logic's custom plug-in accessibility hierarchy did not provide a sufficiently deterministic parameter transaction contract. They no longer block A5 because the parameter path is MCU.
+**High feasibility based on qualified evidence.**
 
-**Decision:** qualify a hybrid architecture: AX for semantic context, virtual MCU for representative native plug-in parameter transactions.
+A useful companion can already be architected around authoritative MIDI read/write, manual-edit synchronization, mixer control, and parameter adjustment on existing compatible native plug-ins.
 
-**Important boundary:** A5 does not prove native effect insertion, processing-chain construction, bypass/removal, or representative effect-class control. Those are now explicit in A10.
+### Full intended production-control Co-Producer
 
-## Pending foundational Logic gates
+**Still plausible, but not yet proven; current risk is medium/high.**
 
-### A6 — Automation
+The decisive missing capability is reliable construction of Logic state: effect insertion, track/region creation, routing/sidechains, and automation. These depend on undocumented Logic Accessibility/control-surface behavior and may require version-specific selectors plus fail-closed capability gating.
 
-**Target:** one Automation Event List point with deterministic semantic identity, one numeric write/readback/restore, and an exact final row snapshot.
+The project should therefore continue only under a bounded decision process, not an open-ended probing process.
 
-If a disposable automation fixture is required, it may only be created from a proven safe baseline and must be removed/reverified exactly.
+## Restart plan
 
-### A7 — Routing / sends / sidechain
+Do **not** resume with the existing broad A6–A11 unattended completion batch.
 
-**Target:** qualify both a representative normal routing edge and one true sidechain relationship because those are materially different graph operations.
+For unresolved UI mechanisms, the process is now:
 
-Normal output/send success alone is not enough to mark the original routing/sidechain requirement complete.
+1. inspect existing implementations / research first;
+2. reduce the uncertainty to one small fail-closed transaction or diagnostic;
+3. target 1–5 minutes of user testing;
+4. qualify or reject that exact mechanism;
+5. only after success, fold it into unattended integration coverage.
 
-### A8 — saved `.logicx` reconciliation
+Priority on restart:
 
-**Target:** a narrow, explicitly empirical saved-project signal without claiming a public `.logicx` schema.
+1. **A10:** insert one stock effect on exact `Audio 1`, verify instance/slot, remove it, prove exact restoration.
+2. **A11:** create/import one disposable instrument track/region, independently verify, remove/restore.
+3. **A7:** prove one normal routing edge and one true sidechain using a disposable processing context.
+4. Then A6/A8/A9 as needed.
 
-Use read-only saved copies, preserve saved-only provenance and prove the parser does not modify the copies.
+## Pivot rule
 
-### A9 — audio region/source mapping
+Use one focused weekend feasibility sprint, not an indefinite series of probes.
 
-**Target:** demonstrate the strongest independently checkable mapping level without overclaiming:
+- If A10 and at least one of A11/A7 become reliably qualified, continue toward the full production-control foundation.
+- If, after applying known prior-art implementations, we still cannot reliably execute and independently verify even one stock-effect insertion plus one representative construction/routing operation, reduce the product scope.
 
-1. associated source file;
-2. exact source sample range;
-3. exact samples played after transformations.
+Fallback scope: keep the already-proven authoritative MIDI collaboration, mixer control, manual-edit synchronization, and existing-plug-in parameter adjustment; unsupported production operations become recommendations/instructions rather than automatic execution.
 
-The initial acceptable result may be only mapping level 1 if that is all the evidence supports.
+## Phase-A stop condition
 
-### A10 — stock Logic plug-in insertion and chain control
-
-Issue: #12
-
-**Target:** prove the product can construct and manipulate the native processing chain required by ordinary production and sound recreation, not merely adjust an existing instance.
-
-Representative qualification should cover:
-
-- exact target channel strip;
-- native effect insertion and exact slot/instance identity;
-- meaningful parameter access/readback;
-- bypass/enable where useful;
-- removal of disposable instances and exact chain restoration;
-- representative effect classes: EQ, dynamics/compression, time-based processing, distortion/saturation.
-
-This remains decision-oriented: prove the distinct control mechanisms, not every stock plug-in and parameter.
-
-The later analysis/reasoning stages—not Phase A—test whether the Co-Producer can choose musically appropriate settings and iteratively optimize them against a description or reference.
-
-### A11 — core track/region/stock-instrument construction
-
-Issue: #13
-
-**Target:** prove representative construction/identity/restoration operations required by composition, arrangement and source/instrument selection:
-
-- create/select a controlled/disposable track where required;
-- create one region;
-- duplicate or move/resize one region as a structural edit;
-- assign/insert one stock software instrument or patch where required;
-- independently verify each material change;
-- remove/restore the disposable fixture exactly.
-
-## Revised Phase-A stop condition
-
-Foundational Logic interoperability stops once there is enough representative evidence to choose a viable architecture for:
+Foundational Logic interoperability is complete only when there is enough representative evidence to choose a viable architecture for:
 
 - authoritative current MIDI state;
 - verified MIDI mutation;
@@ -212,21 +161,4 @@ Foundational Logic interoperability stops once there is enough representative ev
 - useful audio-region/source mapping;
 - representative track/region/instrument construction.
 
-At that point, move into the Authoritative State Kernel and Transaction Engine rather than accumulating more proof-of-concept UI micro-tests.
-
-## What remains after foundational Logic validation
-
-Passing these gates does **not** mean the Co-Producer application is nearly finished. Major planned work remains:
-
-- Authoritative State Kernel and synchronization/revision/hash architecture;
-- stale-response rejection;
-- semantic Co-Producer Plan schema and capability registry;
-- Safety Compiler;
-- Transaction Engine, verified rollback and Co-Producer undo;
-- local symbolic/audio analysis and artifact/cache graph;
-- reference-song and described-sound analysis/comparison workflows;
-- local reasoning and coexistence testing;
-- manual ChatGPT handoff round-trip;
-- optional provider routing;
-- user-facing app/UX, preview, progress, verification and history;
-- later hardening, performance, licensing and distribution work.
+At that point, stop proof-of-concept probing and move into the Authoritative State Kernel and Transaction Engine.
