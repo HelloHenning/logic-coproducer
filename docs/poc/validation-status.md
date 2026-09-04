@@ -1,8 +1,62 @@
 # POC Validation Status and Strategy
 
-_Status: active — 2026-09-03_
+_Status: active — 2026-09-04_
 
-This document records the current interoperability evidence and the testing strategy for the Logic Co-Producer proof of concept.
+This document records the current interoperability evidence, testing strategy, and current handoff state for the Logic Co-Producer proof of concept.
+
+## Current handoff — 2026-09-04
+
+Active branch: `poc/logic-interoperability-lab`
+
+Draft PR: #5
+
+Phase-A gate state:
+
+- A0 — sufficient
+- A1 — PASS / complete
+- A2 — PASS / complete
+- A3 — PASS / complete
+- A4 — PASS / complete
+- A5 — pending; **do not run another target-Mac A5 attempt yet**
+- A6 — pending
+- A7 — pending
+- A8 — pending
+- A9 — pending
+
+### Immediate next action
+
+Before another A5 runner is sent to the target Mac, perform a focused terminology/UI-structure research pass for Logic Pro 12.0.1. The recent A5 failures were setup-harness failures caused by incorrect assumptions about Logic's exposed plug-in-slot semantics, not failures of the actual parameter round-trip.
+
+Research should establish and document, using Apple documentation first and corroborating sources only where useful:
+
+- Track vs channel strip terminology and identity.
+- Mixer channel strip vs Inspector channel strip and how both expose the same software instrument.
+- Software-instrument slot / instrument plug-in slot terminology versus Audio FX insert slots and MIDI FX slots.
+- Plug-in window terminology, including Editor vs Controls view and the View/zoom control.
+- Known Logic key commands or menu commands for opening the focused track's instrument plug-in, without silently altering the user's key-command assignments.
+- The relationship between visible slot labels (for the controlled fixture the slot is visibly labelled `Piano`) and Accessibility structure.
+- Existing AX evidence showing a hosted instrument represented as a plug-in-specific group with child controls such as `bypass`, `open`, and `list`.
+
+After that research, redesign A5 setup automation from the actual Logic structure rather than guessed strings. The controlled fixture visibly exposes the same green `Piano` instrument slot both in the Studio Grand Mixer strip and in the Inspector channel strip. The latest failed A5 matcher searched for `Studio Piano`, `software instrument`, or `instrument slot`, returned zero candidates, and aborted before any plug-in parameter mutation. That matcher is therefore not authoritative evidence about whether the Mixer route exists.
+
+No raw screenshot or private UI snapshot should be added to the public repository. Summarized structural findings only.
+
+### A5 run history relevant to the handoff
+
+The actual A5 semantic parameter read/write/readback/restore operation has **not yet been reached** in the failed runs below. No Studio Piano parameter was changed in those setup failures.
+
+1. Initial manual setup runner used a timeout. The user could miss the setup window while doing other work.
+2. Timeout was removed and replaced with explicit Return confirmation, but the detector falsely rejected a visually correct Studio Piano window because it depended on an unreliable selected-descendant condition.
+3. A5 was changed to automatic AX setup. The automation correctly resolved `Studio Grand`, but tried to infer the instrument slot using guessed semantics.
+4. Latest target-Mac failure after commit `b73f6eaaad027ef7efb5f255ad2bcbfb9abb345a` reported:
+   `RESULT=FAIL reason=studio-piano-instrument-slot-not-resolved actions=Studio-Grand-already-selected,instrument-slot-candidates-studio=0-generic=0`
+   The user's screenshot then confirmed that the instrument slot is plainly present in both Mixer and Inspector and is visibly labelled `Piano`.
+
+The correct lesson is not "the Mixer branch is wrong." The lesson is that the current AX matcher is looking for the wrong semantic labels / structure.
+
+### Workflow after A5
+
+Once A5 is qualified, do not return to one-short-test-at-a-time handoffs. Prepare A6-A9 as one unattended Phase-A completion session wherever safety permits: one setup, one command, one evidence ZIP, independent gate results, automatic restoration, and continuation past ordinary independent failures. Stop the batch only when protected Logic state cannot be proven restored or another genuine safety condition exists.
 
 ## Decision-oriented POC rule
 
@@ -41,6 +95,8 @@ Preferred test shape:
 5. automated restoration and verification.
 
 If a runner requires human input or a Logic/macOS setup action, it must **wait indefinitely for explicit Terminal confirmation** (normally pressing Return) rather than timing out. The user should be free to leave the computer and come back later without losing the run. Automatic polling with a bounded timeout is reserved for machine-only/background-safe steps that do not require human attention.
+
+Prefer automating Logic setup itself when it can be done deterministically and safely. Do not delegate repetitive UI preparation to the user merely because it is convenient for the harness.
 
 Independent tests should continue after ordinary failures. Only a safety-critical condition, especially an inability to restore protected Logic state, should stop a batch.
 
@@ -99,19 +155,33 @@ Five visible channel strips were semantically associated with track/channel-stri
 
 Accessibility `AXPress` for Mute and Solo returned success but independent rereads did not change state. Therefore direct AX Mute/Solo is **not qualified**.
 
-**Decision:** retain AX for semantic/context/readback support where useful; test virtual MCU/CoreMIDI as the stronger mixer-control candidate.
+**Decision:** retain AX for semantic/context/readback support where useful; virtual MCU/CoreMIDI is the stronger qualified mixer-control plane.
 
 ### A4 — Virtual MCU/CoreMIDI mixer
 
-**Status: pending.**
+**Status: PASS / complete for the POC architectural decision.**
 
-Lean POC target: prove one representative stable track binding with bidirectional volume/pan/mute/solo and independent Logic readback, then add only one banking/reorder case if needed to establish mapping stability.
+The target-Mac run proved a stable representative binding to the visible `Audio 1` strip and bidirectional operation for Volume, Pan, Mute and Solo through the virtual MCU/CoreMIDI bridge. Logic-to-controller feedback was observed and independent Logic AX readback verified the intended state.
+
+During the Solo case, Logic also placed other strips into its solo-induced mute state. A generic single-control-diff checker initially printed a scary `FAIL changed=[...]` line, but this was expected Logic solo semantics rather than wrong-target mutation: pressing Solo again restored the affected Solo/Mute states exactly.
+
+Final full mixer verification matched the starting 20-control state exactly.
+
+**Decision:** virtual MCU/CoreMIDI is qualified as the primary representative mixer control plane for the POC. A4 is ticked off; issue #6 is closed.
 
 ### A5 — Plug-in inventory and parameter control
 
-**Status: pending.**
+**Status: pending; setup harness under redesign.**
 
-Lean POC target: one controlled native Logic instrument/effect chain, deterministic instance identity, one representative parameter read/write/readback/restore. Third-party AU variability is measured later rather than exhaustively tested now.
+Lean POC target remains unchanged: one controlled native Logic instrument/effect chain, deterministic instance identity, one representative parameter read/write/readback/restore. Third-party AU variability is measured later rather than exhaustively tested now.
+
+The controlled reference is the `Studio Grand` track with the native Studio Piano instrument. The user's latest screenshot confirms that the same green `Piano` instrument slot is reachable from both the Mixer channel strip and the Inspector channel strip.
+
+The latest automatic setup runner correctly recognized that Studio Grand was already selected, then failed before opening the plug-in because its candidate matcher searched for semantics such as `Studio Piano`, `software instrument`, or `instrument slot` and found zero matches. Earlier AX evidence from another native instrument shows a hosted instrument represented as a plug-in-specific group with child controls including `bypass`, `open`, and `list`. That evidence should guide the redesign.
+
+**Important:** no failed A5 target-Mac run to date has reached the actual parameter mutation stage. Do not interpret these setup failures as evidence against native plug-in parameter control.
+
+**Next decision gate:** first complete focused Logic terminology/UI-structure research, then implement one deterministic opener based on the actual channel-strip / instrument-slot structure, with Mixer and Inspector routes treated as equivalent surfaces for the same hosted instrument where appropriate. Do not send another speculative A5 runner to the user before this is done.
 
 ### A6 — Automation
 
@@ -163,4 +233,4 @@ At that point, move into the Authoritative State Kernel and Transaction Engine r
 
 ## Evidence policy
 
-Raw Accessibility snapshots and ZIP evidence may contain unrelated Logic UI/history information and should remain local unless sanitized. Public GitHub should contain code, synthetic fixtures, summarized results and sanitized evidence only.
+Raw Accessibility snapshots, screenshots and ZIP evidence may contain unrelated Logic UI/history information and should remain local unless sanitized. Public GitHub should contain code, synthetic fixtures, summarized results and sanitized evidence only.
