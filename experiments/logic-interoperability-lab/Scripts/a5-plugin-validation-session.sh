@@ -165,21 +165,27 @@ Keep this Terminal command running. In the same synthetic Logic project:
 1. Make sure the Mixer is visible (press X if needed).
 2. Select the track named "Studio Grand".
 3. On that channel strip, click the software-instrument slot to open its Studio Piano plug-in.
-4. In the plug-in window's View pop-up, choose "Controls".
+4. In the upper-right of the plug-in window, next to "View:", click the menu that currently shows "100%" (or another zoom percentage), then choose "Controls".
 5. Close any other plug-in windows, leaving Studio Piano open.
 
 Do not change any plug-in parameter yourself.
-You do NOT need to return to Terminal or press Enter. The runner will detect the setup automatically.
+There is NO timeout. Take as long as you need.
+When the setup is complete, return to this Terminal and press Return once.
 TXT
 
-  start="$(date +%s)"
-  while ! setup_ready "$SETUP_TOPOLOGY" "$SETUP_INVENTORY"; do
-    now="$(date +%s)"
-    if (( now - start >= 300 )); then
-      record "RESULT=A5_FAIL reason=setup-timeout"
-      exit 20
+  while true; do
+    printf '\nPress Return when the Logic setup above is complete: '
+    IFS= read -r _
+    progress 2 5 10 "Verify user-confirmed Studio Piano setup"
+    if setup_ready "$SETUP_TOPOLOGY" "$SETUP_INVENTORY"; then
+      break
     fi
-    sleep 2
+    cat <<'TXT'
+
+Setup is not fully detectable yet. Nothing was changed.
+Please re-check the five Logic setup steps above, then return here and press Return again.
+This checkpoint does not time out.
+TXT
   done
 fi
 selected_track_ok "$SETUP_TOPOLOGY" | tee -a "$RESULTS"
