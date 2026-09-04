@@ -13,7 +13,10 @@ let package = Package(
         .executable(name: "logic-a2-mutate", targets: ["LogicA2Mutate"]),
         .executable(name: "logic-a2-compare", targets: ["LogicA2Compare"]),
         .executable(name: "logic-control-probe", targets: ["LogicControlProbe"]),
-        .executable(name: "logic-mixer-matrix", targets: ["LogicMixerMatrix"])
+        .executable(name: "logic-mixer-matrix", targets: ["LogicMixerMatrix"]),
+        .executable(name: "logic-blind-diff", targets: ["LogicBlindDiff"]),
+        .executable(name: "logic-external-midi-actor", targets: ["LogicExternalMIDIActor"]),
+        .executable(name: "logic-surface-explorer", targets: ["LogicSurfaceExplorer"])
     ],
     targets: [
         .executableTarget(
@@ -43,6 +46,18 @@ let package = Package(
         .executableTarget(
             name: "LogicMixerMatrix",
             path: "Sources/LogicMixerMatrixFixed"
+        ),
+        .executableTarget(
+            name: "LogicBlindDiff",
+            path: "Sources/LogicBlindDiff"
+        ),
+        .executableTarget(
+            name: "LogicExternalMIDIActor",
+            path: "Sources/LogicExternalMIDIActor"
+        ),
+        .executableTarget(
+            name: "LogicSurfaceExplorer",
+            path: "Sources/LogicSurfaceExplorer"
         )
     ]
 )
