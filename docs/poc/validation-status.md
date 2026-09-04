@@ -10,7 +10,7 @@ Active branch: `poc/logic-interoperability-lab`
 
 Draft PR: #5
 
-Phase-A gates:
+Phase-A / foundational Logic gates:
 
 - A0 — sufficient
 - A1 — PASS / complete
@@ -18,16 +18,28 @@ Phase-A gates:
 - A3 — PASS / complete
 - A4 — PASS / complete
 - A5 — PASS / complete
-- A6 — pending target-Mac batch validation
-- A7 — pending target-Mac batch validation
-- A8 — pending target-Mac batch validation
-- A9 — pending target-Mac batch validation
+- A6 — pending target-Mac validation
+- A7 — pending target-Mac validation; must include a true sidechain relationship, not only normal output routing
+- A8 — pending target-Mac validation
+- A9 — pending target-Mac validation
+- A10 — pending: stock Logic plug-in insertion and chain control (#12)
+- A11 — pending: representative track/region/stock-instrument construction (#13)
 
 ### Immediate next action
 
-Run the single unattended `Scripts/phase-a-completion-session.sh` target-Mac session. It attempts A6–A9 independently, produces one evidence ZIP, continues after ordinary pre-mutation failures, and stops only when protected Logic state cannot be proven restored.
+**Do not run the existing `Scripts/phase-a-completion-session.sh` as the final completion batch.**
 
-The batch implementation is governed by `docs/research/research-7-phase-a-a6-a9-interface-contracts.md` and passed GitHub Actions CI #128 for Swift build, shell syntax, and the CoreMIDI bridge smoke test.
+The 2026-09-04 full-scope audit found that the A0–A9 checklist had become narrower than the original product architecture. In particular:
+
+- A5 proves parameter control on an already-existing native Studio Piano instance but does not prove `insert_plugin` or stock processing-chain construction;
+- the current A7 runner exercises a normal output edge but not the materially distinct sidechain relationship;
+- the product action boundary includes region create/move/duplicate and instrument/source changes, but no representative construction gate was present.
+
+See `docs/poc/scope-audit-2026-09-04.md`.
+
+The next user-facing test should therefore be a **revised single unattended A6–A11 completion batch** that preserves the same safety model: independent gate results, automatic restoration, continuation after ordinary independent failures, and immediate stop only when protected Logic state cannot be proven restored.
+
+The existing A6–A9 runner and `docs/research/research-7-phase-a-a6-a9-interface-contracts.md` remain useful implementation/evidence foundations, but the runner must be extended/reviewed before target-Mac execution.
 
 ## Decision-oriented POC rule
 
@@ -99,7 +111,7 @@ The virtual Mackie Control bridge produced bidirectional controller↔Logic oper
 
 ### A5 — native plug-in parameter control
 
-**PASS / complete.**
+**PASS / complete for the parameter-transaction mechanism.**
 
 The target-Mac A5 evidence proves:
 
@@ -120,64 +132,101 @@ The earlier Controls-view AX failures remain useful negative evidence: Logic's c
 
 **Decision:** qualify a hybrid architecture: AX for semantic context, virtual MCU for representative native plug-in parameter transactions.
 
-## Pending Phase-A completion gates
+**Important boundary:** A5 does not prove native effect insertion, processing-chain construction, bypass/removal, or representative effect-class control. Those are now explicit in A10.
+
+## Pending foundational Logic gates
 
 ### A6 — Automation
 
 **Target:** one Automation Event List point with deterministic semantic identity, one numeric write/readback/restore, and an exact final row snapshot.
 
-The batch first reads any existing Automation Event List data. If the selected `Studio Grand` track has no automation, it may create a disposable two-point fixture at selected-region borders using Logic's documented automation command, but only from a proven empty baseline. Temporary points must be removed and the empty baseline reproven.
-
-A customized/missing default key command or an unresolvable table is an ordinary pre-mutation failure, not a reason to alter the user's key-command configuration.
+If a disposable automation fixture is required, it may only be created from a proven safe baseline and must be removed/reverified exactly.
 
 ### A7 — Routing / sends / sidechain
 
-**Target:** one representative normal output edge before testing sidechain as a distinct case.
+**Target:** qualify both a representative normal routing edge and one true sidechain relationship because those are materially different graph operations.
 
-The batch attempts exact `Studio Grand` routing `Stereo Out -> No Output -> Stereo Out`, only after proving a unique actionable Output slot and both menu destinations. It requires changed-state readback and an exact routing fingerprint restoration. Sidechain remains deferred unless this normal-routing result leaves a separate architectural question.
+Normal output/send success alone is not enough to mark the original routing/sidechain requirement complete.
 
 ### A8 — saved `.logicx` reconciliation
 
 **Target:** a narrow, explicitly empirical saved-project signal without claiming a public `.logicx` schema.
 
-The batch uses Logic's `Save a Copy As` to create a baseline copy, temporarily renames non-default instrument track `Studio Grand` to a unique marker, saves a changed copy, restores the live track name, and inspects both copies read-only. A8 passes only if the marker is deterministically present in the changed saved copy but not the baseline and hashes prove the parser modified neither copy.
-
-Qualified claim if successful: **empirical saved track-name reconciliation only**.
+Use read-only saved copies, preserve saved-only provenance and prove the parser does not modify the copies.
 
 ### A9 — audio region/source mapping
 
-**Target:** demonstrate the strongest independently checkable mapping level without overclaiming.
+**Target:** demonstrate the strongest independently checkable mapping level without overclaiming:
 
-The batch generates a disposable synthetic WAV, imports it on exact track `Audio 1`, opens the selected region in Logic's Audio File Editor, and looks for the unique source filename in that editor context. It then undoes the import and verifies that the generated source no longer appears in the main Tracks window.
+1. associated source file;
+2. exact source sample range;
+3. exact samples played after transformations.
 
-If successful, the initial qualified claim is intentionally limited to:
+The initial acceptable result may be only mapping level 1 if that is all the evidence supports.
 
-**mapping level 1 — associated source file only.**
+### A10 — stock Logic plug-in insertion and chain control
 
-Exact source sample range and exact samples played after transformations remain unproven unless later evidence directly demonstrates them.
+Issue: #12
 
-## Phase-A completion runner
+**Target:** prove the product can construct and manipulate the native processing chain required by ordinary production and sound recreation, not merely adjust an existing instance.
 
-`experiments/logic-interoperability-lab/Scripts/phase-a-completion-session.sh`
+Representative qualification should cover:
 
-Expected evidence archive:
+- exact target channel strip;
+- native effect insertion and exact slot/instance identity;
+- meaningful parameter access/readback;
+- bypass/enable where useful;
+- removal of disposable instances and exact chain restoration;
+- representative effect classes: EQ, dynamics/compression, time-based processing, distortion/saturation.
 
-`~/Desktop/logic-coproducer-tests/coproducer-phase-a-completion.zip`
+This remains decision-oriented: prove the distinct control mechanisms, not every stock plug-in and parameter.
 
-The runner reports each gate separately (`A6`, `A7`, `A8`, `A9`) plus a final safety/restoration summary. A partial gate result does not invalidate independent passes.
+The later analysis/reasoning stages—not Phase A—test whether the Co-Producer can choose musically appropriate settings and iteratively optimize them against a description or reference.
 
-## POC stop condition
+### A11 — core track/region/stock-instrument construction
 
-Phase-A stops once a viable architecture has been chosen for:
+Issue: #13
+
+**Target:** prove representative construction/identity/restoration operations required by composition, arrangement and source/instrument selection:
+
+- create/select a controlled/disposable track where required;
+- create one region;
+- duplicate or move/resize one region as a structural edit;
+- assign/insert one stock software instrument or patch where required;
+- independently verify each material change;
+- remove/restore the disposable fixture exactly.
+
+## Revised Phase-A stop condition
+
+Foundational Logic interoperability stops once there is enough representative evidence to choose a viable architecture for:
 
 - authoritative current MIDI state;
 - verified MIDI mutation;
 - refresh after external/manual edits;
 - mixer control;
-- representative plug-in control;
+- plug-in parameter transactions;
+- stock native plug-in insertion/chain control;
 - representative automation control;
-- representative routing control;
+- normal routing and sidechain control;
 - useful saved-state supplementation;
-- useful audio-region/source mapping.
+- useful audio-region/source mapping;
+- representative track/region/instrument construction.
 
-At that point, move into the Authoritative State Kernel and Transaction Engine rather than continuing to accumulate proof-of-concept micro-tests.
+At that point, move into the Authoritative State Kernel and Transaction Engine rather than accumulating more proof-of-concept UI micro-tests.
+
+## What remains after foundational Logic validation
+
+Passing these gates does **not** mean the Co-Producer application is nearly finished. Major planned work remains:
+
+- Authoritative State Kernel and synchronization/revision/hash architecture;
+- stale-response rejection;
+- semantic Co-Producer Plan schema and capability registry;
+- Safety Compiler;
+- Transaction Engine, verified rollback and Co-Producer undo;
+- local symbolic/audio analysis and artifact/cache graph;
+- reference-song and described-sound analysis/comparison workflows;
+- local reasoning and coexistence testing;
+- manual ChatGPT handoff round-trip;
+- optional provider routing;
+- user-facing app/UX, preview, progress, verification and history;
+- later hardening, performance, licensing and distribution work.
