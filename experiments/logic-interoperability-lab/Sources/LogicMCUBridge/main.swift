@@ -7,7 +7,7 @@ private let sourceUniqueID: Int32 = 0x434F5001
 private let destinationUniqueID: Int32 = 0x434F5002
 private let deviceID: UInt8 = 0x14
 private let serial: [UInt8] = Array("COP001A".utf8)
-private let challenge: [UInt8] = [0x01, 0x02, 0x03, 0x04]
+private let challenge: [UInt8] = [1, 2, 3, 4]
 
 private func nowISO() -> String { ISO8601DateFormatter().string(from: Date()) }
 private func hex(_ bytes: [UInt8]) -> String { bytes.map { String(format: "%02X", $0) }.joined(separator: " ") }
@@ -19,12 +19,7 @@ private func option(_ name: String, args: [String]) -> String? {
 final class PacketQueue: @unchecked Sendable {
     private let lock = NSLock()
     private var packets: [[UInt8]] = []
-
-    func push(_ bytes: [UInt8]) {
-        lock.lock(); defer { lock.unlock() }
-        packets.append(bytes)
-    }
-
+    func push(_ bytes: [UInt8]) { lock.lock(); packets.append(bytes); lock.unlock() }
     func drain() -> [[UInt8]] {
         lock.lock(); defer { lock.unlock() }
         let out = packets
@@ -62,46 +57,39 @@ final class BridgeState {
 
     func appendEvent(direction: String, bytes: [UInt8], note: String? = nil) {
         var object: [String: Any] = [
-            "timestamp": nowISO(),
-            "direction": direction,
-            "hex": hex(bytes),
-            "bytes": bytes.map(Int.init)
+            "timestamp": nowISO(), "direction": direction,
+            "hex": hex(bytes), "bytes": bytes.map(Int.init)
         ]
         if let note { object["note"] = note }
         guard let data = try? JSONSerialization.data(withJSONObject: object),
               let line = String(data: data, encoding: .utf8) else { return }
-        let text = line + "\n"
-        if FileManager.default.fileExists(atPath: eventsURL.path), let handle = try? FileHandle(forWritingTo: eventsURL) {
+        let payload = Data((line + "\n").utf8)
+        if let handle = try? FileHandle(forWritingTo: eventsURL) {
             defer { try? handle.close() }
             _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: Data(text.utf8))
-        } else {
-            try? text.write(to: eventsURL, atomically: true, encoding: .utf8)
+            try? handle.write(contentsOf: payload)
         }
     }
 
     func writeStatus() {
+        func nullable<T>(_ value: T?) -> Any { value.map { $0 as Any } ?? NSNull() }
         let object: [String: Any] = [
             "schema": "logic-coproducer-mcu-bridge-status/1.0",
-            "generatedAt": nowISO(),
-            "ready": ready,
-            "sourceName": sourceName,
-            "destinationName": destinationName,
+            "generatedAt": nowISO(), "ready": ready,
+            "sourceName": sourceName, "destinationName": destinationName,
             "hostPacketCount": hostPacketCount,
             "handshakeQueryCount": handshakeQueryCount,
             "handshakeReplyCount": handshakeReplyCount,
             "handshakeConfirmedCount": handshakeConfirmedCount,
-            "fader0Counter": fader0Counter,
-            "ring0Counter": ring0Counter,
-            "mute0Counter": mute0Counter,
-            "solo0Counter": solo0Counter,
-            "lastFader0Raw": lastFader0Raw.map { $0 as Any } ?? NSNull(),
-            "lastRing0Value": lastRing0Value.map { $0 as Any } ?? NSNull(),
-            "lastMute0Value": lastMute0Value.map { $0 as Any } ?? NSNull(),
-            "lastSolo0Value": lastSolo0Value.map { $0 as Any } ?? NSNull(),
+            "fader0Counter": fader0Counter, "ring0Counter": ring0Counter,
+            "mute0Counter": mute0Counter, "solo0Counter": solo0Counter,
+            "lastFader0Raw": nullable(lastFader0Raw),
+            "lastRing0Value": nullable(lastRing0Value),
+            "lastMute0Value": nullable(lastMute0Value),
+            "lastSolo0Value": nullable(lastSolo0Value),
             "commandAck": commandAck,
-            "lastCommand": lastCommand.map { $0 as Any } ?? NSNull(),
-            "lastHostTraffic": lastHostTraffic.map { $0 as Any } ?? NSNull()
+            "lastCommand": nullable(lastCommand),
+            "lastHostTraffic": nullable(lastHostTraffic)
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) else { return }
         try? data.write(to: statusURL, options: .atomic)
@@ -109,32 +97,56 @@ final class BridgeState {
 
     func send(_ bytes: [UInt8], note: String? = nil) -> OSStatus {
         guard source != 0 else { return -1 }
-        var packetList = MIDIPacketList()
-        let packet = MIDIPacketListInit(&packetList)
-        let status: OSStatus = bytes.withUnsafeBufferPointer { buffer in
+        var list = MIDIPacketList()
+        let packet = MIDIPacketListInit(&list)
+        let result: OSStatus = bytes.withUnsafeBufferPointer { buffer in
             guard let base = buffer.baseAddress else { return -1 }
-            _ = MIDIPacketListAdd(&packetList, MemoryLayout<MIDIPacketList>.size, packet, 0, bytes.count, base)
-            return MIDIReceived(source, &packetList)
+            _ = MIDIPacketListAdd(&list, MemoryLayout<MIDIPacketList>.size, packet, 0, bytes.count, base)
+            return MIDIReceived(source, &list)
         }
         appendEvent(direction: "device-to-logic", bytes: bytes, note: note)
-        return status
+        return result
     }
 
-    func sendSysEx(command: UInt8, params: [UInt8], note: String) {
+    func sendSysEx(_ command: UInt8, _ params: [UInt8], _ note: String) {
         _ = send([0xF0, 0x00, 0x00, 0x66, deviceID, command] + params + [0xF7], note: note)
-    }
-
-    func sendConnectionQuery() {
-        sendSysEx(command: 0x01, params: serial + challenge, note: "host-connection-query")
     }
 
     func expectedResponse() -> [UInt8] {
         let c = challenge.map(Int.init)
-        let r0 = (c[0] + (c[1] ^ 0x0A) - c[3]) & 0x7F
-        let r1 = ((c[2] >> 4) ^ (c[0] + c[3])) & 0x7F
-        let r2 = ((c[3] - (c[2] << 2)) ^ (c[0] | c[1])) & 0x7F
-        let r3 = (c[1] - c[2] + (0xF0 ^ (c[3] << 4))) & 0x7F
-        return [r0, r1, r2, r3].map(UInt8.init)
+        return [
+            0x7F & (c[0] + (c[1] ^ 0x0A) - c[3]),
+            0x7F & ((c[2] >> 4) ^ (c[0] + c[3])),
+            0x7F & ((c[3] - (c[2] << 2)) ^ (c[0] | c[1])),
+            0x7F & (c[1] - c[2] + (0xF0 ^ (c[3] << 4)))
+        ].map(UInt8.init)
+    }
+
+    func sendConnectionQuery() {
+        sendSysEx(0x01, serial + challenge, "host-connection-query")
+    }
+
+    func processSysEx(_ bytes: [UInt8]) {
+        guard bytes.count >= 7,
+              Array(bytes.prefix(5)) == [0xF0, 0x00, 0x00, 0x66, deviceID],
+              bytes.last == 0xF7 else { return }
+        let command = bytes[5]
+        let params = Array(bytes.dropFirst(6).dropLast())
+        if command == 0x00 {
+            handshakeQueryCount += 1
+            sendConnectionQuery()
+        } else if command == 0x02 {
+            handshakeReplyCount += 1
+            guard params.count >= 11 else { return }
+            let receivedSerial = Array(params.prefix(7))
+            let response = Array(params.dropFirst(7).prefix(4))
+            if receivedSerial == serial && response == expectedResponse() {
+                handshakeConfirmedCount += 1
+                sendSysEx(0x03, serial, "host-connection-confirmation")
+            }
+        } else if command == 0x13 {
+            sendSysEx(0x14, Array("V1.0 ".utf8), "firmware-version-reply")
+        }
     }
 
     func processIncoming(_ bytes: [UInt8]) {
@@ -148,29 +160,22 @@ final class BridgeState {
             let status = bytes[i]
             if status == 0xF0 {
                 guard let end = bytes[i...].firstIndex(of: 0xF7) else { break }
-                let sysex = Array(bytes[i...end])
-                processSysEx(sysex)
+                processSysEx(Array(bytes[i...end]))
                 i = end + 1
                 continue
             }
             let kind = status & 0xF0
             if [UInt8(0x80), 0x90, 0xB0, 0xE0].contains(kind), i + 2 < bytes.count {
-                let d1 = bytes[i + 1]
-                let d2 = bytes[i + 2]
+                let d1 = bytes[i + 1], d2 = bytes[i + 2]
                 let channel = Int(status & 0x0F)
-
                 if kind == 0xE0 && channel == 0 {
-                    lastFader0Raw = Int(d1) | (Int(d2) << 7)
-                    fader0Counter += 1
+                    lastFader0Raw = Int(d1) | (Int(d2) << 7); fader0Counter += 1
                 } else if kind == 0xB0 && channel == 0 && d1 == 48 {
-                    lastRing0Value = Int(d2)
-                    ring0Counter += 1
+                    lastRing0Value = Int(d2); ring0Counter += 1
                 } else if (kind == 0x80 || kind == 0x90) && channel == 0 && d1 == 16 {
-                    lastMute0Value = Int(d2)
-                    mute0Counter += 1
+                    lastMute0Value = Int(d2); mute0Counter += 1
                 } else if (kind == 0x80 || kind == 0x90) && channel == 0 && d1 == 8 {
-                    lastSolo0Value = Int(d2)
-                    solo0Counter += 1
+                    lastSolo0Value = Int(d2); solo0Counter += 1
                 }
                 i += 3
             } else if [UInt8(0xC0), 0xD0].contains(kind), i + 1 < bytes.count {
@@ -181,69 +186,35 @@ final class BridgeState {
         }
     }
 
-    func processSysEx(_ bytes: [UInt8]) {
-        guard bytes.count >= 7,
-              Array(bytes.prefix(5)) == [0xF0, 0x00, 0x00, 0x66, deviceID],
-              bytes.last == 0xF7 else { return }
-        let command = bytes[5]
-        let params = Array(bytes.dropFirst(6).dropLast())
-        switch command {
-        case 0x00:
-            handshakeQueryCount += 1
-            sendConnectionQuery()
-        case 0x02:
-            handshakeReplyCount += 1
-            guard params.count >= 11 else { return }
-            let receivedSerial = Array(params.prefix(7))
-            let response = Array(params.dropFirst(7).prefix(4))
-            if receivedSerial == serial && response == expectedResponse() {
-                handshakeConfirmedCount += 1
-                sendSysEx(command: 0x03, params: serial, note: "host-connection-confirmation")
-            }
-        case 0x13:
-            sendSysEx(command: 0x14, params: Array("V1.0 ".utf8), note: "firmware-version-reply")
-        default:
-            break
-        }
-    }
-
     func performCommand(_ line: String) {
         let parts = line.split(separator: " ").map(String.init)
         guard let first = parts.first else { return }
-        let upper = first.uppercased()
         lastCommand = line
         defer { commandAck += 1 }
-
-        switch upper {
+        switch first.uppercased() {
         case "FADER" where parts.count == 3:
-            guard let strip = Int(parts[1]), (0...8).contains(strip), let raw = Int(parts[2]), (0...16383).contains(raw) else { return }
+            guard let strip = Int(parts[1]), (0...8).contains(strip),
+                  let raw = Int(parts[2]), (0...16383).contains(raw) else { return }
             if strip <= 7 { _ = send([0x90, UInt8(104 + strip), 0x7F], note: "fader-touch-on") }
-            let lsb = UInt8(raw & 0x7F)
-            let msb = UInt8((raw >> 7) & 0x7F)
-            _ = send([UInt8(0xE0 + strip), lsb, msb], note: "fader-position")
-            if strip <= 7 { _ = send([0x80, UInt8(104 + strip), 0x00], note: "fader-touch-off") }
+            _ = send([UInt8(0xE0 + strip), UInt8(raw & 0x7F), UInt8((raw >> 7) & 0x7F)], note: "fader-position")
+            if strip <= 7 { _ = send([0x80, UInt8(104 + strip), 0], note: "fader-touch-off") }
         case "PAN" where parts.count == 3:
-            guard let strip = Int(parts[1]), (0...7).contains(strip), let delta = Int(parts[2]), delta != 0 else { return }
-            let magnitude = UInt8(min(abs(delta), 63))
-            let value = delta > 0 ? magnitude : (0x40 | magnitude)
-            _ = send([0xB0, UInt8(16 + strip), value], note: "vpot-rotate")
+            guard let strip = Int(parts[1]), (0...7).contains(strip),
+                  let delta = Int(parts[2]), delta != 0 else { return }
+            let mag = UInt8(min(abs(delta), 63))
+            _ = send([0xB0, UInt8(16 + strip), delta > 0 ? mag : (0x40 | mag)], note: "vpot-rotate")
         case "BUTTON" where parts.count == 3:
             guard let strip = Int(parts[2]), (0...7).contains(strip) else { return }
             let base: Int
-            switch parts[1].uppercased() {
-            case "SOLO": base = 8
-            case "MUTE": base = 16
-            default: return
-            }
+            if parts[1].uppercased() == "SOLO" { base = 8 }
+            else if parts[1].uppercased() == "MUTE" { base = 16 }
+            else { return }
             let note = UInt8(base + strip)
             _ = send([0x90, note, 0x7F], note: "button-down")
-            _ = send([0x80, note, 0x00], note: "button-up")
-        case "HANDSHAKE":
-            sendConnectionQuery()
-        case "QUIT":
-            shouldQuit = true
-        default:
-            break
+            _ = send([0x80, note, 0], note: "button-up")
+        case "HANDSHAKE": sendConnectionQuery()
+        case "QUIT": shouldQuit = true
+        default: break
         }
     }
 }
@@ -256,14 +227,16 @@ private func assignStableProperties(_ endpoint: MIDIEndpointRef, uniqueID: Int32
 
 private func packetBytes(_ list: UnsafePointer<MIDIPacketList>) -> [[UInt8]] {
     var output: [[UInt8]] = []
-    var packetPointer = withUnsafePointer(to: list.pointee.packet) { $0 }
-    for _ in 0..<Int(list.pointee.numPackets) {
-        let packet = packetPointer.pointee
-        let bytes = withUnsafeBytes(of: packet.data) { raw -> [UInt8] in
-            Array(raw.bindMemory(to: UInt8.self).prefix(Int(packet.length)))
+    withUnsafePointer(to: list.pointee.packet) { first in
+        var packetPointer = UnsafeMutablePointer(mutating: first)
+        for _ in 0..<Int(list.pointee.numPackets) {
+            let packet = packetPointer.pointee
+            let bytes = withUnsafeBytes(of: packet.data) { raw -> [UInt8] in
+                Array(raw.bindMemory(to: UInt8.self).prefix(Int(packet.length)))
+            }
+            if !bytes.isEmpty { output.append(bytes) }
+            packetPointer = MIDIPacketNext(packetPointer)
         }
-        if !bytes.isEmpty { output.append(bytes) }
-        packetPointer = MIDIPacketNext(packetPointer)
     }
     return output
 }
@@ -275,7 +248,6 @@ guard let commandPath = option("--commands", args: args),
     fputs("Usage: logic-mcu-bridge --commands PATH --status PATH --events PATH\n", stderr)
     exit(2)
 }
-
 let commandsURL = URL(fileURLWithPath: commandPath)
 let statusURL = URL(fileURLWithPath: statusPath)
 let eventsURL = URL(fileURLWithPath: eventsPath)
@@ -284,7 +256,6 @@ try? "".write(to: eventsURL, atomically: true, encoding: .utf8)
 
 let queue = PacketQueue()
 let state = BridgeState(statusURL: statusURL, eventsURL: eventsURL)
-
 var client: MIDIClientRef = 0
 let clientStatus = MIDIClientCreateWithBlock("Logic Co-Producer MCU" as CFString, &client) { _ in }
 guard clientStatus == noErr else { fputs("MIDIClientCreate failed: \(clientStatus)\n", stderr); exit(3) }
@@ -307,7 +278,6 @@ defer {
     if destination != 0 { _ = MIDIEndpointDispose(destination) }
     if client != 0 { _ = MIDIClientDispose(client) }
 }
-
 state.ready = true
 state.writeStatus()
 print("READY source=\(sourceName) destination=\(destinationName)")
@@ -317,7 +287,6 @@ var processedCommandLines = 0
 var lastHandshakeSend = Date.distantPast
 while !state.shouldQuit {
     for bytes in queue.drain() { state.processIncoming(bytes) }
-
     if let text = try? String(contentsOf: commandsURL, encoding: .utf8) {
         let lines = text.split(whereSeparator: \.isNewline).map(String.init)
         if lines.count > processedCommandLines {
@@ -325,15 +294,12 @@ while !state.shouldQuit {
             processedCommandLines = lines.count
         }
     }
-
     if state.handshakeConfirmedCount == 0 && Date().timeIntervalSince(lastHandshakeSend) >= 2.0 {
         state.sendConnectionQuery()
         lastHandshakeSend = Date()
     }
-
     state.writeStatus()
     RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 }
-
 state.writeStatus()
 print("RESULT=STOPPED host_packets=\(state.hostPacketCount) handshake_confirmed=\(state.handshakeConfirmedCount)")
