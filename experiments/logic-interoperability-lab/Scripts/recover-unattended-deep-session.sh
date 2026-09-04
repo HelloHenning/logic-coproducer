@@ -17,7 +17,8 @@ BASELINE="$OUT_DIR/baseline-1.json"
 echo "Logic Co-Producer — exact recovery after unattended velocity abort"
 echo "This does not rerun the validation suite."
 echo "It first reads the complete current region without changing it."
-echo "It will write only if current Logic still exactly matches the recorded one-event failed state."
+echo "Displayed/semantic MIDI values are authoritative; unstable AX raw-value encoding is treated as diagnostic only."
+echo "It will write only if current Logic semantically matches the recorded one-event failed state."
 echo
 
 if ! swift build >/dev/null; then
@@ -32,12 +33,16 @@ BLIND="$LAB_DIR/.build/debug/logic-blind-diff"
 BEFORE_JSON="$OUT_DIR/recovery-live-before.json"
 BEFORE_LOG="$OUT_DIR/recovery-live-before.log"
 PRECHECK_BASELINE_LOG="$OUT_DIR/recovery-precheck-baseline.log"
+PRECHECK_BASELINE_SEM_LOG="$OUT_DIR/recovery-precheck-baseline-semantic.log"
 PRECHECK_FAILED_LOG="$OUT_DIR/recovery-precheck-recorded-failed.log"
+PRECHECK_FAILED_SEM_LOG="$OUT_DIR/recovery-precheck-recorded-failed-semantic.log"
+DIFF_JSON="$OUT_DIR/recovery-current-vs-baseline-diff.json"
 RESTORE_PLAN="$OUT_DIR/velocity-emergency-restore-plan.json"
 RESTORE_LOG="$OUT_DIR/velocity-emergency-restore.log"
 FINAL_JSON="$OUT_DIR/recovered-final.json"
 FINAL_LOG="$OUT_DIR/recovered-final.log"
 EQUAL_LOG="$OUT_DIR/recovered-final-equal.log"
+SEM_EQUAL_LOG="$OUT_DIR/recovered-final-semantic-equal.log"
 
 capture_full() {
   local out_json="$1"
@@ -59,19 +64,38 @@ fi
 
 if "$BLIND" assert-equal --pre "$BASELINE" --post "$BEFORE_JSON" >"$PRECHECK_BASELINE_LOG" 2>&1; then
   cat "$PRECHECK_BASELINE_LOG"
-  echo "RESULT=RECOVERY_PASS full_region_matches_protected_baseline already_restored=true"
+  echo "RESULT=RECOVERY_PASS full_region_matches_protected_baseline already_restored=true exact_raw_match=true"
   exit 0
 fi
 
-if ! "$BLIND" assert-equal --pre "$RECORDED_FAILED" --post "$BEFORE_JSON" >"$PRECHECK_FAILED_LOG" 2>&1; then
+if "$BLIND" assert-semantic-equal --pre "$BASELINE" --post "$BEFORE_JSON" >"$PRECHECK_BASELINE_SEM_LOG" 2>&1; then
+  cat "$PRECHECK_BASELINE_SEM_LOG"
+  echo "RESULT=RECOVERY_PASS full_region_semantically_matches_protected_baseline already_restored=true exact_raw_match=false"
+  echo "Note: only non-authoritative AX raw-value encoding differs; displayed MIDI state matches the protected baseline."
+  exit 0
+fi
+
+FAILED_MATCH=false
+if "$BLIND" assert-equal --pre "$RECORDED_FAILED" --post "$BEFORE_JSON" >"$PRECHECK_FAILED_LOG" 2>&1; then
+  FAILED_MATCH=true
+elif "$BLIND" assert-semantic-equal --pre "$RECORDED_FAILED" --post "$BEFORE_JSON" >"$PRECHECK_FAILED_SEM_LOG" 2>&1; then
+  FAILED_MATCH=true
+fi
+
+if [[ "$FAILED_MATCH" != true ]]; then
+  "$BLIND" compare --pre "$BASELINE" --post "$BEFORE_JSON" --out "$DIFF_JSON" >/dev/null 2>&1 || true
   cat "$PRECHECK_BASELINE_LOG" >&2
-  cat "$PRECHECK_FAILED_LOG" >&2
+  cat "$PRECHECK_BASELINE_SEM_LOG" >&2
   echo "RESULT=RECOVERY_FAIL reason=current-state-is-neither-protected-baseline-nor-recorded-failed-state" >&2
   echo "No mutation was attempted." >&2
+  if [[ -f "$DIFF_JSON" ]]; then
+    echo "Exact current-vs-baseline diff follows:" >&2
+    cat "$DIFF_JSON" >&2
+  fi
   exit 30
 fi
 
-echo "2/3 Current state exactly matches the recorded one-event failure; restoring that value..."
+echo "2/3 Current state semantically matches the recorded one-event failure; restoring that value..."
 set +e
 "$ACTOR" restore-field \
   --baseline-current "$BEFORE_JSON" \
@@ -96,11 +120,28 @@ if "$BLIND" assert-equal --pre "$BASELINE" --post "$FINAL_JSON" >"$EQUAL_LOG" 2>
   if [[ $ACTOR_RC -ne 0 ]]; then
     echo "Note: the targeted actor returned $ACTOR_RC, but independent full-state verification proves recovery succeeded."
   fi
-  echo "RESULT=RECOVERY_PASS full_region_matches_protected_baseline"
+  echo "RESULT=RECOVERY_PASS full_region_matches_protected_baseline exact_raw_match=true"
   exit 0
 fi
 
+if "$BLIND" assert-semantic-equal --pre "$BASELINE" --post "$FINAL_JSON" >"$SEM_EQUAL_LOG" 2>&1; then
+  cat "$RESTORE_LOG"
+  cat "$SEM_EQUAL_LOG"
+  if [[ $ACTOR_RC -ne 0 ]]; then
+    echo "Note: the targeted actor returned $ACTOR_RC, but independent semantic verification proves recovery succeeded."
+  fi
+  echo "RESULT=RECOVERY_PASS full_region_semantically_matches_protected_baseline exact_raw_match=false"
+  echo "Note: only non-authoritative AX raw-value encoding differs; displayed MIDI state matches the protected baseline."
+  exit 0
+fi
+
+"$BLIND" compare --pre "$BASELINE" --post "$FINAL_JSON" --out "$DIFF_JSON" >/dev/null 2>&1 || true
 cat "$RESTORE_LOG" >&2
 cat "$EQUAL_LOG" >&2
+cat "$SEM_EQUAL_LOG" >&2
+if [[ -f "$DIFF_JSON" ]]; then
+  echo "Exact final-vs-baseline diff follows:" >&2
+  cat "$DIFF_JSON" >&2
+fi
 echo "RESULT=RECOVERY_FAIL reason=full-state-diff actor_exit=$ACTOR_RC" >&2
 exit 32
