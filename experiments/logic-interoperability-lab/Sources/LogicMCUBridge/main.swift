@@ -96,13 +96,19 @@ final class BridgeState {
     }
 
     func send(_ bytes: [UInt8], note: String? = nil) -> OSStatus {
-        guard source != 0 else { return -1 }
-        var list = MIDIPacketList()
-        let packet = MIDIPacketListInit(&list)
+        guard source != 0, !bytes.isEmpty else { return -1 }
+        let capacity = max(1024, MemoryLayout<MIDIPacketList>.size + bytes.count + 64)
+        let raw = UnsafeMutableRawPointer.allocate(
+            byteCount: capacity,
+            alignment: MemoryLayout<MIDIPacketList>.alignment
+        )
+        defer { raw.deallocate() }
+        let list = raw.bindMemory(to: MIDIPacketList.self, capacity: 1)
+        let packet = MIDIPacketListInit(list)
         let result: OSStatus = bytes.withUnsafeBufferPointer { buffer in
             guard let base = buffer.baseAddress else { return -1 }
-            _ = MIDIPacketListAdd(&list, MemoryLayout<MIDIPacketList>.size, packet, 0, bytes.count, base)
-            return MIDIReceived(source, &list)
+            _ = MIDIPacketListAdd(list, capacity, packet, 0, bytes.count, base)
+            return MIDIReceived(source, list)
         }
         appendEvent(direction: "device-to-logic", bytes: bytes, note: note)
         return result
@@ -122,8 +128,8 @@ final class BridgeState {
         ].map(UInt8.init)
     }
 
-    func sendConnectionQuery() {
-        sendSysEx(0x01, serial + challenge, "host-connection-query")
+    func sendConnectionQueryResponse() {
+        sendSysEx(0x01, serial + challenge, "connection-query-response")
     }
 
     func processSysEx(_ bytes: [UInt8]) {
@@ -134,7 +140,7 @@ final class BridgeState {
         let params = Array(bytes.dropFirst(6).dropLast())
         if command == 0x00 {
             handshakeQueryCount += 1
-            sendConnectionQuery()
+            sendConnectionQueryResponse()
         } else if command == 0x02 {
             handshakeReplyCount += 1
             guard params.count >= 11 else { return }
@@ -142,7 +148,7 @@ final class BridgeState {
             let response = Array(params.dropFirst(7).prefix(4))
             if receivedSerial == serial && response == expectedResponse() {
                 handshakeConfirmedCount += 1
-                sendSysEx(0x03, serial, "host-connection-confirmation")
+                sendSysEx(0x03, serial, "connection-confirmation")
             }
         } else if command == 0x13 {
             sendSysEx(0x14, Array("V1.0 ".utf8), "firmware-version-reply")
@@ -212,7 +218,6 @@ final class BridgeState {
             let note = UInt8(base + strip)
             _ = send([0x90, note, 0x7F], note: "button-down")
             _ = send([0x80, note, 0], note: "button-up")
-        case "HANDSHAKE": sendConnectionQuery()
         case "QUIT": shouldQuit = true
         default: break
         }
@@ -284,7 +289,6 @@ print("READY source=\(sourceName) destination=\(destinationName)")
 fflush(stdout)
 
 var processedCommandLines = 0
-var lastHandshakeSend = Date.distantPast
 while !state.shouldQuit {
     for bytes in queue.drain() { state.processIncoming(bytes) }
     if let text = try? String(contentsOf: commandsURL, encoding: .utf8) {
@@ -293,10 +297,6 @@ while !state.shouldQuit {
             for line in lines[processedCommandLines...] { state.performCommand(line) }
             processedCommandLines = lines.count
         }
-    }
-    if state.handshakeConfirmedCount == 0 && Date().timeIntervalSince(lastHandshakeSend) >= 2.0 {
-        state.sendConnectionQuery()
-        lastHandshakeSend = Date()
     }
     state.writeStatus()
     RunLoop.current.run(until: Date().addingTimeInterval(0.05))
