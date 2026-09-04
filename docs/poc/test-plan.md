@@ -10,6 +10,8 @@ The first useful product proof is not "AI can generate MIDI." It is:
 
 > **The Co-Producer can observe what is actually in Logic now, make a small reversible change, notice subsequent manual user changes, and reason from the updated authoritative state.**
 
+The validation program is decision-oriented rather than exhaustive. Prove a distinct architectural connection/failure mode, make the decision it unlocks, then move on. Detailed compatibility and regression matrices are deferred until there is a product to harden.
+
 ## Phase A — Logic Interoperability Laboratory
 
 ### A0 — Build the test harness and golden fixtures
@@ -27,177 +29,107 @@ Initial responsibilities:
 
 Create synthetic Logic fixtures rather than using private/unpublished music.
 
-The first MIDI fixture should include:
-
-- at least 1,000 notes;
-- events beyond the initially visible Event List viewport;
-- overlapping same-pitch notes;
-- multiple MIDI channels;
-- CC events;
-- pitch bend;
-- channel pressure;
-- polyphonic aftertouch where Logic represents it;
-- articulation-related events where practical;
-- looped/cropped regions;
-- intentionally awkward timing/length combinations.
-
 **Success criterion:** the lab can run repeatable, non-destructive observations and compare results to golden expected state.
-
-**Unlocks:** reliable empirical qualification rather than ad-hoc UI scripting.
 
 ---
 
 ### A1 — Complete Event List MIDI read
 
+**Status: PASS for the qualified stored-event subset.**
+
 **Question:** Can the selected Logic MIDI region be reconstructed exactly from Event List Accessibility?
 
-Build:
+The qualified observer must enumerate the complete controlled fixture, including rows beyond the initial viewport, and match the golden state exactly/repeatably.
 
-- deterministic Event List opener/focus resolver;
-- filter-state detector;
-- row/cell inspector;
-- pagination/scroll strategy for virtualized rows;
-- canonical event serializer;
-- completeness proof.
-
-The resulting snapshot must capture every relevant event field required to reconstruct the fixture.
-
-**Pass:** canonical observed event collection matches the golden fixture exactly, including events outside the original viewport, with no duplicates or omissions.
-
-**Fail:** any event class/row cannot be deterministically enumerated or completeness cannot be proven.
-
-**Decision unlocked:** whether Event List can become the preferred live exact-MIDI observer.
-
-**If it fails:** implement controlled Standard MIDI File export/readback as the exact-read fallback and continue the overall product architecture with reduced live granularity.
+**Decision unlocked:** Event List can serve as the preferred live exact-MIDI observer for the qualified stored-event fields.
 
 ---
 
-### A2 — One-event granular mutation
+### A2 — Granular MIDI mutation
 
-Only attempt after A1 gives a trustworthy readback surface.
+**Status: PASS for the POC architectural decision.**
 
-Build the smallest possible safe mutation: change exactly one known MIDI event property, initially preferably velocity or pitch.
+Prove one representative stored-event property mutation with full prestate, exact independent readback/diff, no collateral canonical changes, and exact restoration. Additional examples are used only if a materially different targeting or representation failure mode is unresolved.
 
-Workflow:
-
-1. snapshot authoritative pre-state;
-2. resolve one event;
-3. make one Event List mutation;
-4. re-read the entire relevant region;
-5. compute exact diff;
-6. confirm the requested event changed and nothing else changed;
-7. restore pre-state.
-
-Repeat with start, duration and other event types after the first path works.
-
-**Pass:** exact intended change, no unrelated event changes, independent readback confirms result.
-
-**Fail:** mutation cannot be targeted deterministically, collateral state changes occur, or result cannot be independently verified.
-
-**Decision unlocked:** whether granular stored-event MIDI editing can be a production direction.
-
-**If it fails:** keep Event List as readback if A1 passed, and use controlled SMF/region replacement for mutation.
+**Decision unlocked:** granular Event List mutation can proceed into the semantic transaction-engine POC for qualified fields.
 
 ---
 
-### A3 — Manual MIDI edit detection
+### A3 — External/manual MIDI edit detection
 
-Establish a baseline snapshot, then make manual edits directly in Logic without telling the lab what changed:
+**Status: PASS for the POC architectural decision.**
 
-- add note;
-- delete note;
-- move note;
-- resize note;
-- change velocity;
-- change another MIDI event.
+Establish a baseline, change Logic independently of the observer's prior intent, refresh through the qualified read path, and prove that the fresh state supersedes stale controller/AI state.
 
-The lab must refresh the current region and produce the exact new state/diff without reference to its own previous mutation intent.
+A representative direct Logic pitch edit has already passed: the fresh authoritative reread detected the exact change, a second refresh was deterministic, and restoration returned to baseline. This is sufficient for the core source-of-truth architectural decision.
 
-**Pass:** all manual changes are correctly reflected in the refreshed authoritative snapshot.
+Additional add/delete/move/resize/velocity matrices are deferred to regression hardening unless a new implementation path raises a distinct failure mode.
 
-**Fail:** stale AI/controller state can survive as if it were current Logic state.
-
-**Decision unlocked:** the core "Logic is source of truth" MIDI hypothesis.
-
-**If it fails:** investigate a stronger refresh/readback path. Write-enabled MIDI collaboration should not proceed until authoritative refresh is reliable.
+**Decision unlocked:** Logic remains the authoritative MIDI source after independent/manual edits.
 
 ---
 
 ### A4 — Virtual MCU mixer round-trip
 
-Test a virtual Mackie Control/CoreMIDI plane over a deliberately larger track set.
+Test virtual Mackie Control/CoreMIDI only far enough to establish a robust mixer-control plane.
 
-Verify:
+Lean target:
 
-- banking/track mapping;
-- fader;
-- pan;
-- mute;
-- solo;
-- manual changes reflected back to the controller;
-- controller changes reflected in Logic;
-- stable target binding after reorder/insert where applicable.
+- one representative stable semantic track/channel-strip binding;
+- controller → Logic and Logic → controller state for volume, pan, mute and solo;
+- independent Logic readback;
+- one banking/reorder stability case only if required to prove mapping stability;
+- exact restoration.
 
-**Pass:** no wrong-target operations and reliable bidirectional state.
-
-**Unlocks:** robust mixer plane.
+**Pass:** required mixer controls operate bidirectionally on the intended semantic target with no wrong-target changes.
 
 ---
 
 ### A5 — Plug-in inventory and parameter qualification
 
-Start with native Logic plug-ins, then representative third-party Audio Units.
+Use one controlled native Logic instrument/effect chain.
 
-For each test instance capture capability fields such as:
+Lean target:
 
-- inventory read;
-- slot/order read;
-- parameter enumeration;
-- semantic mapping;
-- parameter value read;
-- parameter write;
-- independent readback;
-- preset change;
-- custom GUI accessibility.
+- deterministic instance/slot identity;
+- stable semantic parameter surface;
+- current value/range read;
+- one representative reversible parameter write;
+- independent readback and restoration.
 
-**Pass:** at least the native reference plug-ins support verified semantic parameter operations; third-party variability is measured rather than assumed.
-
-**Unlocks:** capability-registry design and initial plug-in operation set.
+Broad native/third-party compatibility matrices are deferred. Third-party AUs remain capability-gated rather than assumed uniform.
 
 ---
 
-### A6 — Automation Event List CRUD
+### A6 — Automation control
 
-Build an automation fixture with volume and a plug-in parameter lane.
+Use one controlled automation lane.
 
-Test:
+Lean target:
 
-- complete point enumeration;
-- parameter/lane identity;
-- position/value read;
-- add one point;
-- modify one point;
-- delete one point;
-- exact readback/diff.
+- lane/parameter identity;
+- complete point read for the fixture;
+- one representative reversible point mutation;
+- independent readback/diff;
+- exact restoration.
 
-**Pass:** complete point-level CRUD can be verified without collateral changes.
-
-**If it fails:** qualify broader automation-writing paths; granular point editing stays disabled.
+Test additional CRUD verbs only if the first operation leaves a distinct architectural question unresolved.
 
 ---
 
 ### A7 — Routing / send / sidechain
 
-Test:
+Use one small controlled routing graph.
 
-- send destination;
-- send level;
-- pre/post where exposed;
-- bus/aux resolution/creation as supported;
-- compressor sidechain source;
-- independent readback.
+Lean target:
 
-**Pass:** target and routing graph remain unambiguous and verified.
+- one representative send/routing edge with semantic source/destination identity;
+- one reversible change;
+- independent readback;
+- no collateral graph change;
+- exact restoration.
+
+Sidechain gets a second representative case only because it is a materially different routing relationship.
 
 ---
 
@@ -205,48 +137,43 @@ Test:
 
 Read only. Never modify the open project package.
 
-For controlled saves, compare saved parser output with known live/saved observations across:
+Lean target: qualify a useful saved-state subset with explicit saved-only provenance and one representative rename/reorder/move/save reconciliation case.
 
-- tracks;
-- regions;
-- MIDI where available;
-- plug-ins;
-- routing;
-- markers/signatures where available;
-- benign rename/reorder/move operations;
-- save/reopen;
-- project alternatives if relevant.
-
-**Pass:** useful saved-state fields can be reconciled with explicit saved-only provenance and stable/qualified identity behavior.
-
-**If it fails:** `.logicx` becomes a diagnostic/optional observer rather than a core state source.
+Unqualified fields remain diagnostic/optional.
 
 ---
 
 ### A9 — Audio region → source mapping
 
-Using synthetic audio files and regions, test:
+Use a small synthetic audio fixture to determine the strongest safe mapping claim:
 
-- duplicated regions;
-- trimming;
-- looping;
-- source offsets;
-- takes/comps where practical;
-- Flex/time/pitch transformations later.
+1. associated source file;
+2. exact source sample range;
+3. exact samples Logic will play after transformations.
 
-Distinguish:
-
-- "associated source file";
-- "exact source sample range";
-- "exact samples Logic will play after transformations."
-
-Do not claim the strongest level until it is empirically proven.
+Start with a normal trimmed/duplicated region. Add looping/transformation only if needed to determine where the claim stops being exact.
 
 ---
 
+## Phase A stop condition
+
+Stop interoperability validation when there is enough representative evidence to choose a viable architecture for each required connection:
+
+- authoritative current MIDI state;
+- verified MIDI mutation;
+- refresh after independent/manual edits;
+- mixer control;
+- representative plug-in control;
+- representative automation control;
+- representative routing control;
+- useful saved-state supplementation;
+- useful audio-region/source mapping.
+
+Do not continue Phase A merely to accumulate micro-test coverage. Move into the Authoritative State Kernel and Transaction Engine once those architectural gates are answered.
+
 ## Phase B — Authoritative state kernel
 
-Once A1–A3 establish the first viable authoritative MIDI path, implement the domain kernel.
+Once the Phase-A architecture is chosen, implement the domain kernel.
 
 ### B1 — Entity model
 
@@ -278,47 +205,17 @@ Implement monotonic project revision and per-entity revisions.
 
 ### B5 — Hashes and dependency closure
 
-Implement:
-
-- full state hash for audit;
-- request scope hash;
-- target/dependency hashes;
-- dependency graph closure.
+Implement full-state/audit hashes, request-scope hashes, target/dependency hashes and dependency closure.
 
 ### B6 — Stale-response tests
 
-Required cases:
-
-- unrelated verse change → warning, action may remain eligible;
-- target region changed → target action rejected;
-- harmony dependency changed → dependent action rejected;
-- plug-in/sidechain dependency changed → affected action rejected.
-
-No stale invalid action may reach mutation code.
+Required semantic cases include unrelated changes that may only warn versus target/dependency changes that must reject stale actions.
 
 ---
 
 ## Phase C — Transaction engine
 
-Start with a tiny semantic operation registry:
-
-- `add_note`;
-- `remove_note`;
-- `move_note`;
-- `change_velocity`.
-
-Implement:
-
-1. pre-state capture;
-2. capability/precondition validation;
-3. semantic preview;
-4. short revalidation immediately before write;
-5. apply;
-6. independent readback;
-7. exact expected-vs-observed verification;
-8. transaction record;
-9. inverse/restore operation;
-10. rollback test.
+Start with a tiny semantic operation registry and implement prestate, capability/precondition validation, semantic preview, immediate revalidation, apply, independent readback, exact verification, transaction record and rollback/restore.
 
 **Success criterion:** a transaction is not marked verified unless current Logic state proves the expected semantic diff exists and unrelated protected state remains unchanged.
 
@@ -326,107 +223,31 @@ Implement:
 
 ## Phase D — Local music intelligence
 
-Do not begin by integrating every model from Research 2.
-
-Recommended order:
-
-1. exact symbolic MIDI representation and simple harmony layer;
-2. deterministic local DSP primitives;
-3. beat/downbeat engine;
-4. one license-qualified source-separation path;
-5. drum/bass targeted analysis;
-6. bar-aligned energy/arrangement difference engine;
-7. evidence-backed explanation layer.
-
-Quick/Detailed/Maximum should alter the actual analysis graph.
+Build only the analysis components needed by actual product decisions, beginning with exact symbolic MIDI/harmony and deterministic local DSP before broader model integrations.
 
 ---
 
 ## Phase E — Local reasoning
 
-Add a provider-independent local reasoning interface only after state/actions are structured.
-
-Test small, normal and optional deeper model classes while Logic is actually running.
-
-Measure:
-
-- latency;
-- unified-memory pressure;
-- thermal state;
-- Logic responsiveness;
-- audio underruns/dropouts;
-- schema/plan quality.
-
-The target normal model class is an engineering hypothesis, not a permanent model family.
+Add a provider-independent local reasoning interface only after state/actions are structured. Measure latency, memory pressure, Logic responsiveness and schema/plan quality rather than committing prematurely to one model family.
 
 ---
 
 ## Phase F — Manual ChatGPT provider
 
-Create a real handoff from current authoritative state:
-
-```text
-manifest.json
-request.md
-current_state.json
-harmony.json
-midi.json
-analysis.json
-creative_context.json
-optional media
-```
-
-Test:
-
-- export;
-- manual upload;
-- explanation + semantic JSON response;
-- paste/drop import;
-- schema/precondition validation;
-- preview;
-- transaction;
-- verification.
-
-Invalid JSON must execute nothing.
+Create a real handoff from current authoritative state using machine-readable state/analysis/context files. Invalid response data must execute nothing.
 
 ---
 
 ## Phase G — Optional cloud routing
 
-Only after the same provider-neutral plan path works locally/manual.
-
-Initial candidates may change over time, so keep them behind adapters and runtime capability data.
-
-The initial architectural order is:
-
-1. free structured-text provider prototype;
-2. privacy-gated multimodal/audio provider;
-3. optional paid general-reasoning challenger;
-4. additional providers only if the Co-Producer benchmark justifies them.
-
-Paid APIs remain off by default.
+Only after the same provider-neutral plan path works locally/manual. Paid APIs remain opt-in.
 
 ---
 
 # MVP — Authoritative MIDI Collaboration
 
-The first useful MVP should:
-
-1. attach to current Logic project;
-2. enumerate enough current context to identify the selected MIDI region;
-3. read exact current MIDI;
-4. analyze current harmony locally;
-5. accept a constrained musical-development request;
-6. generate a semantic MIDI diff;
-7. preview it;
-8. apply it granularly where the adapter permits;
-9. independently verify the resulting Logic state;
-10. let the user manually edit Logic;
-11. re-read the manual changes;
-12. answer a second request using the updated current state rather than stale AI history;
-13. undo the last Co-Producer transaction safely.
-
-Optional after the core flow works: produce/import a manual ChatGPT alternative using the same state and action schema.
+The first useful MVP should attach to the current Logic project, read exact current MIDI, analyze current musical context, generate a semantic diff, preview/apply/verify it, notice subsequent manual Logic changes, reason from the updated state, and safely undo the last Co-Producer transaction.
 
 ## MVP success statement
 
