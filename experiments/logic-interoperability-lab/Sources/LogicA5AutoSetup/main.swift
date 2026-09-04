@@ -14,37 +14,59 @@ private enum AX {
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &raw) == .success else { return nil }
         return raw
     }
+
     static func string(_ element: AXUIElement, _ attribute: String) -> String? { copy(element, attribute) as? String }
+
     static func simple(_ element: AXUIElement, _ attribute: String = kAXValueAttribute) -> String? {
         guard let raw = copy(element, attribute) else { return nil }
         if let s = raw as? String { return s }
         if let n = raw as? NSNumber { return n.stringValue }
         return nil
     }
+
     static func bool(_ element: AXUIElement, _ attribute: String) -> Bool? {
         guard let raw = copy(element, attribute) else { return nil }
         if let b = raw as? Bool { return b }
         if let n = raw as? NSNumber { return n.boolValue }
         return nil
     }
+
     static func children(_ element: AXUIElement) -> [AXUIElement] {
         guard let raw = copy(element, kAXChildrenAttribute) else { return [] }
         return (raw as? [AXUIElement] ?? []).filter { !CFEqual($0, element) }
     }
+
     static func actions(_ element: AXUIElement) -> [String] {
         var raw: CFArray?
         guard AXUIElementCopyActionNames(element, &raw) == .success else { return [] }
         return raw as? [String] ?? []
     }
+
     static func isSettable(_ element: AXUIElement, _ attribute: String) -> Bool {
         var flag = DarwinBoolean(false)
         return AXUIElementIsAttributeSettable(element, attribute as CFString, &flag) == .success && flag.boolValue
     }
+
     static func press(_ element: AXUIElement) -> AXError {
         AXUIElementPerformAction(element, kAXPressAction as CFString)
     }
+
     static func select(_ element: AXUIElement) -> AXError {
         AXUIElementSetAttributeValue(element, kAXSelectedAttribute as CFString, kCFBooleanTrue)
+    }
+
+    static func point(_ element: AXUIElement, _ attribute: String) -> CGPoint? {
+        guard let raw = copy(element, attribute), CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
+        var point = CGPoint.zero
+        guard AXValueGetValue(raw as! AXValue, .cgPoint, &point) else { return nil }
+        return point
+    }
+
+    static func size(_ element: AXUIElement) -> CGSize? {
+        guard let raw = copy(element, kAXSizeAttribute), CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
+        var size = CGSize.zero
+        guard AXValueGetValue(raw as! AXValue, .cgSize, &size) else { return nil }
+        return size
     }
 }
 
@@ -240,6 +262,54 @@ private func postX() {
     up.post(tap: .cgAnnotatedSessionEventTap)
 }
 
+private func clickCenter(_ ref: Ref) -> Bool {
+    guard ref.candidate.enabled != false,
+          ref.candidate.visible != false,
+          let origin = AX.point(ref.element, kAXPositionAttribute),
+          let size = AX.size(ref.element),
+          size.width > 2, size.height > 2
+    else { return false }
+    let point = CGPoint(x: origin.x + size.width / 2, y: origin.y + size.height / 2)
+    guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left),
+          let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left)
+    else { return false }
+    down.post(tap: .cgAnnotatedSessionEventTap)
+    usleep(70_000)
+    up.post(tap: .cgAnnotatedSessionEventTap)
+    return true
+}
+
+private func nearestPressableAncestor(of ref: Ref, within prefix: String, refs: [Ref]) -> Ref? {
+    var path = ref.candidate.path
+    let byPath = Dictionary(uniqueKeysWithValues: refs.map { ($0.candidate.path, $0) })
+    while path.hasPrefix(prefix) {
+        if let candidate = byPath[path],
+           candidate.candidate.enabled != false,
+           candidate.candidate.actions.contains(kAXPressAction as String) {
+            return candidate
+        }
+        guard let slash = path.lastIndex(of: "/") else { break }
+        path = String(path[..<slash])
+    }
+    return nil
+}
+
+private func activateRef(_ ref: Ref, within prefix: String, refs: [Ref], actions: inout [String], label: String) -> Bool {
+    if ref.candidate.actions.contains(kAXPressAction as String), AX.press(ref.element) == .success {
+        actions.append(label + "-via-AXPress")
+        return true
+    }
+    if let ancestor = nearestPressableAncestor(of: ref, within: prefix, refs: refs), AX.press(ancestor.element) == .success {
+        actions.append(label + "-via-pressable-ancestor")
+        return true
+    }
+    if clickCenter(ref) {
+        actions.append(label + "-via-center-click")
+        return true
+    }
+    return false
+}
+
 private func ensureTargetStrip(actions: inout [String]) -> (Ref, [Ref], Int)? {
     guard var current = scan() else { return nil }
     if let strip = targetStrip(in: current.refs) { return (strip, current.refs, current.visited) }
@@ -262,12 +332,16 @@ private func ensureTargetStrip(actions: inout [String]) -> (Ref, [Ref], Int)? {
 }
 
 private func selectStripIfPossible(_ strip: Ref, refs: [Ref], actions: inout [String]) {
+    let descendants = subtree(refs, strip.candidate.path)
+    if strip.candidate.selected == true || descendants.contains(where: { $0.candidate.selected == true }) {
+        actions.append("Studio-Grand-already-selected")
+        return
+    }
     if AX.isSettable(strip.element, kAXSelectedAttribute), AX.select(strip.element) == .success {
         actions.append("selected-Studio-Grand-strip")
         usleep(250_000)
         return
     }
-    let descendants = subtree(refs, strip.candidate.path)
     let labelRefs = descendants.filter { exactField($0.candidate, targetTrack) }
     for ref in labelRefs {
         if AX.isSettable(ref.element, kAXSelectedAttribute), AX.select(ref.element) == .success {
@@ -275,8 +349,7 @@ private func selectStripIfPossible(_ strip: Ref, refs: [Ref], actions: inout [St
             usleep(250_000)
             return
         }
-        if ref.candidate.actions.contains(kAXPressAction as String), AX.press(ref.element) == .success {
-            actions.append("pressed-Studio-Grand-label")
+        if activateRef(ref, within: strip.candidate.path, refs: descendants, actions: &actions, label: "selected-Studio-Grand-label") {
             usleep(250_000)
             return
         }
@@ -285,25 +358,43 @@ private func selectStripIfPossible(_ strip: Ref, refs: [Ref], actions: inout [St
 
 private func openInstrumentFromStrip(_ strip: Ref, refs: [Ref], actions: inout [String]) -> Bool {
     let descendants = subtree(refs, strip.candidate.path)
-    let pressable = descendants.filter {
-        $0.candidate.enabled != false && $0.candidate.actions.contains(kAXPressAction as String)
+
+    let studioPiano = descendants.filter {
+        $0.candidate.enabled != false && $0.candidate.visible != false && text($0.candidate).contains("studio piano")
     }
-    let studioPiano = pressable.filter { text($0.candidate).contains("studio piano") }
-    let candidates: [Ref]
-    if studioPiano.count == 1 {
-        candidates = studioPiano
-    } else {
-        candidates = pressable.filter { ref in
-            let t = text(ref.candidate)
-            return (t.contains("software instrument") || t.contains("instrument")) &&
-                !t.contains("midi fx") && !t.contains("audio fx") && !t.contains("input") && !t.contains("output")
-        }
+    let studioLeaves = studioPiano.filter { candidate in
+        !studioPiano.contains(where: { other in
+            other.candidate.path != candidate.candidate.path &&
+            other.candidate.path.hasPrefix(candidate.candidate.path + "/")
+        })
     }
-    guard candidates.count == 1 else { return false }
-    guard AX.press(candidates[0].element) == .success else { return false }
-    actions.append("opened-Studio-Piano-instrument-window")
-    usleep(800_000)
-    return true
+    if studioLeaves.count == 1,
+       activateRef(studioLeaves[0], within: strip.candidate.path, refs: descendants, actions: &actions, label: "opened-Studio-Piano-slot") {
+        usleep(900_000)
+        return true
+    }
+
+    let generic = descendants.filter { ref in
+        guard ref.candidate.enabled != false, ref.candidate.visible != false else { return false }
+        let t = text(ref.candidate)
+        return (t.contains("software instrument") || t == "instrument" || t.contains("instrument slot")) &&
+            !t.contains("midi fx") && !t.contains("audio fx") && !t.contains("audio instruments") &&
+            !t.contains("input") && !t.contains("output")
+    }
+    let genericLeaves = generic.filter { candidate in
+        !generic.contains(where: { other in
+            other.candidate.path != candidate.candidate.path &&
+            other.candidate.path.hasPrefix(candidate.candidate.path + "/")
+        })
+    }
+    if genericLeaves.count == 1,
+       activateRef(genericLeaves[0], within: strip.candidate.path, refs: descendants, actions: &actions, label: "opened-instrument-slot") {
+        usleep(900_000)
+        return true
+    }
+
+    actions.append("instrument-slot-candidates-studio=\(studioLeaves.count)-generic=\(genericLeaves.count)")
+    return false
 }
 
 private func switchPluginToControls(window: Ref, refs: [Ref], actions: inout [String]) -> Bool {
@@ -358,7 +449,7 @@ var numeric: [String] = []
 @MainActor
 func finish(_ result: String, _ reason: String?, code: Int32) -> Never {
     let evidence = SetupEvidence(
-        schema: "logic-coproducer-a5-auto-setup/1.0",
+        schema: "logic-coproducer-a5-auto-setup/1.1",
         generatedAt: ISO8601DateFormatter().string(from: Date()),
         result: result,
         reason: reason,
