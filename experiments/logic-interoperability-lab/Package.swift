@@ -22,72 +22,26 @@ let package = Package(
         .executable(name: "logic-a5-auto-setup", targets: ["LogicA5AutoSetup"]),
         .executable(name: "logic-a5-controls-setup", targets: ["LogicA5ControlsSetup"]),
         .executable(name: "logic-a5-plugin-probe", targets: ["LogicA5PluginProbe"]),
-        .executable(name: "logic-a5-safe-roundtrip", targets: ["LogicA5SafeRoundTrip"])
+        .executable(name: "logic-a5-safe-roundtrip", targets: ["LogicA5SafeRoundTrip"]),
+        .executable(name: "logic-phase-a-probe", targets: ["LogicPhaseAProbe"])
     ],
     targets: [
-        .executableTarget(
-            name: "LogicInteroperabilityLab",
-            path: "Sources/LogicInteroperabilityLab"
-        ),
-        .executableTarget(
-            name: "LogicFixture",
-            path: "Sources/LogicFixture"
-        ),
-        .executableTarget(
-            name: "LogicA1Compare",
-            path: "Sources/LogicA1Compare"
-        ),
-        .executableTarget(
-            name: "LogicA2Mutate",
-            path: "Sources/LogicA2Mutate"
-        ),
-        .executableTarget(
-            name: "LogicA2Compare",
-            path: "Sources/LogicA2Compare"
-        ),
-        .executableTarget(
-            name: "LogicControlProbe",
-            path: "Sources/LogicControlProbe"
-        ),
-        .executableTarget(
-            name: "LogicMixerMatrix",
-            path: "Sources/LogicMixerMatrixFixed"
-        ),
-        .executableTarget(
-            name: "LogicBlindDiff",
-            path: "Sources/LogicBlindDiff"
-        ),
-        .executableTarget(
-            name: "LogicExternalMIDIActor",
-            path: "Sources/LogicExternalMIDIActor"
-        ),
-        .executableTarget(
-            name: "LogicSurfaceExplorer",
-            path: "Sources/LogicSurfaceExplorer"
-        ),
-        .executableTarget(
-            name: "LogicMCUBridge",
-            path: "Sources/LogicMCUBridge"
-        ),
-        .executableTarget(
-            name: "LogicMIDISmokeClient",
-            path: "Sources/LogicMIDISmokeClient"
-        ),
-        .executableTarget(
-            name: "LogicA5AutoSetup",
-            path: "Sources/LogicA5AutoSetup"
-        ),
-        .executableTarget(
-            name: "LogicA5ControlsSetup",
-            path: "Sources/LogicA5ControlsSetup"
-        ),
-        .executableTarget(
-            name: "LogicA5PluginProbe",
-            path: "Sources/LogicA5PluginProbe"
-        ),
-        .executableTarget(
-            name: "LogicA5SafeRoundTrip",
-            path: "Sources/LogicA5SafeRoundTrip"
-        )
+        .executableTarget(name: "LogicInteroperabilityLab", path: "Sources/LogicInteroperabilityLab"),
+        .executableTarget(name: "LogicFixture", path: "Sources/LogicFixture"),
+        .executableTarget(name: "LogicA1Compare", path: "Sources/LogicA1Compare"),
+        .executableTarget(name: "LogicA2Mutate", path: "Sources/LogicA2Mutate"),
+        .executableTarget(name: "LogicA2Compare", path: "Sources/LogicA2Compare"),
+        .executableTarget(name: "LogicControlProbe", path: "Sources/LogicControlProbe"),
+        .executableTarget(name: "LogicMixerMatrix", path: "Sources/LogicMixerMatrixFixed"),
+        .executableTarget(name: "LogicBlindDiff", path: "Sources/LogicBlindDiff"),
+        .executableTarget(name: "LogicExternalMIDIActor", path: "Sources/LogicExternalMIDIActor"),
+        .executableTarget(name: "LogicSurfaceExplorer", path: "Sources/LogicSurfaceExplorer"),
+        .executableTarget(name: "LogicMCUBridge", path: "Sources/LogicMCUBridge"),
+        .executableTarget(name: "LogicMIDISmokeClient", path: "Sources/LogicMIDISmokeClient"),
+        .executableTarget(name: "LogicA5AutoSetup", path: "Sources/LogicA5AutoSetup"),
+        .executableTarget(name: "LogicA5ControlsSetup", path: "Sources/LogicA5ControlsSetup"),
+        .executableTarget(name: "LogicA5PluginProbe", path: "Sources/LogicA5PluginProbe"),
+        .executableTarget(name: "LogicA5SafeRoundTrip", path: "Sources/LogicA5SafeRoundTrip"),
+        .executableTarget(name: "LogicPhaseAProbe", path: "Sources/LogicPhaseAProbe")
     ]
 )
