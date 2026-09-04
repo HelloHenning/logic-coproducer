@@ -96,19 +96,13 @@ final class BridgeState {
     }
 
     func send(_ bytes: [UInt8], note: String? = nil) -> OSStatus {
-        guard source != 0, !bytes.isEmpty else { return -1 }
-        let capacity = max(1024, MemoryLayout<MIDIPacketList>.size + bytes.count + 64)
-        let raw = UnsafeMutableRawPointer.allocate(
-            byteCount: capacity,
-            alignment: MemoryLayout<MIDIPacketList>.alignment
-        )
-        defer { raw.deallocate() }
-        let list = raw.bindMemory(to: MIDIPacketList.self, capacity: 1)
-        let packet = MIDIPacketListInit(list)
+        guard source != 0 else { return -1 }
+        var list = MIDIPacketList()
+        let packet = MIDIPacketListInit(&list)
         let result: OSStatus = bytes.withUnsafeBufferPointer { buffer in
             guard let base = buffer.baseAddress else { return -1 }
-            _ = MIDIPacketListAdd(list, capacity, packet, 0, bytes.count, base)
-            return MIDIReceived(source, list)
+            _ = MIDIPacketListAdd(&list, MemoryLayout<MIDIPacketList>.size, packet, 0, bytes.count, base)
+            return MIDIReceived(source, &list)
         }
         appendEvent(direction: "device-to-logic", bytes: bytes, note: note)
         return result
@@ -128,8 +122,8 @@ final class BridgeState {
         ].map(UInt8.init)
     }
 
-    func sendConnectionQueryResponse() {
-        sendSysEx(0x01, serial + challenge, "connection-query-response")
+    func sendConnectionQuery() {
+        sendSysEx(0x01, serial + challenge, "host-connection-query")
     }
 
     func processSysEx(_ bytes: [UInt8]) {
@@ -140,7 +134,7 @@ final class BridgeState {
         let params = Array(bytes.dropFirst(6).dropLast())
         if command == 0x00 {
             handshakeQueryCount += 1
-            sendConnectionQueryResponse()
+            sendConnectionQuery()
         } else if command == 0x02 {
             handshakeReplyCount += 1
             guard params.count >= 11 else { return }
@@ -148,7 +142,7 @@ final class BridgeState {
             let response = Array(params.dropFirst(7).prefix(4))
             if receivedSerial == serial && response == expectedResponse() {
                 handshakeConfirmedCount += 1
-                sendSysEx(0x03, serial, "connection-confirmation")
+                sendSysEx(0x03, serial, "host-connection-confirmation")
             }
         } else if command == 0x13 {
             sendSysEx(0x14, Array("V1.0 ".utf8), "firmware-version-reply")
@@ -218,6 +212,7 @@ final class BridgeState {
             let note = UInt8(base + strip)
             _ = send([0x90, note, 0x7F], note: "button-down")
             _ = send([0x80, note, 0], note: "button-up")
+        case "HANDSHAKE": sendConnectionQuery()
         case "QUIT": shouldQuit = true
         default: break
         }
@@ -231,17 +226,16 @@ private func assignStableProperties(_ endpoint: MIDIEndpointRef, uniqueID: Int32
 }
 
 private func packetBytes(_ list: UnsafePointer<MIDIPacketList>) -> [[UInt8]] {
+    // Use CoreMIDI's Swift-native unsafe sequence rather than manufacturing a
+    // pointer to a copied `packet` field. The previous implementation could
+    // hand MIDIPacketNext a pointer that did not belong to the original packet
+    // list, which is unsafe as soon as Logic sends data to the virtual input.
     var output: [[UInt8]] = []
-    withUnsafePointer(to: list.pointee.packet) { first in
-        var packetPointer = UnsafeMutablePointer(mutating: first)
-        for _ in 0..<Int(list.pointee.numPackets) {
-            let packet = packetPointer.pointee
-            let bytes = withUnsafeBytes(of: packet.data) { raw -> [UInt8] in
-                Array(raw.bindMemory(to: UInt8.self).prefix(Int(packet.length)))
-            }
-            if !bytes.isEmpty { output.append(bytes) }
-            packetPointer = MIDIPacketNext(packetPointer)
+    for packet in list.unsafeSequence() {
+        let bytes = withUnsafePointer(to: packet) { packetPointer in
+            Array(packetPointer.sequence())
         }
+        if !bytes.isEmpty { output.append(bytes) }
     }
     return output
 }
