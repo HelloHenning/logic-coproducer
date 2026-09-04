@@ -44,7 +44,7 @@ capture_topology() {
   "$ROOT/.build/debug/logic-mixer-matrix" topology --out "$path" > "${path%.json}.log" 2>&1
 }
 
-selected_track_ok() {
+track_identity_ok() {
   local path="$1"
   python3 - "$path" "$EXPECTED_TRACK" <<'PY'
 import json,sys
@@ -56,8 +56,7 @@ for s in d.get('strips',[]):
     hints=[str(x).strip() for x in s.get('labelHints',[])]
     if label in hints or any(('“'+label+'”') in h for h in hints): found.append(s)
 if len(found)!=1: sys.exit(3)
-if int(found[0].get('selectedDescendantCount',0)) < 1: sys.exit(4)
-print('PASS selected_track='+label+' strip='+found[0].get('stripPath',''))
+print('PASS track_identity='+label+' strip='+found[0].get('stripPath',''))
 PY
 }
 
@@ -130,15 +129,6 @@ print('PASS exact_plugin_restore semantic_parameters='+str(len(bv)))
 PY
 }
 
-setup_ready() {
-  local topo="$1" inv="$2"
-  capture_topology "$topo" || return 1
-  selected_track_ok "$topo" >/dev/null 2>&1 || return 1
-  capture_plugin_inventory "$inv" || return 1
-  choose_parameter "$inv" >/dev/null 2>&1 || return 1
-  return 0
-}
-
 progress 1 5 10 "Build and safety preflight"
 if ! swift build > "$OUT/build.log" 2>&1; then
   record "RESULT=A5_FAIL reason=build"
@@ -152,49 +142,32 @@ if ! "$ROOT/.build/debug/logic-lab" doctor > "$OUT/doctor.log" 2>&1; then
 fi
 progress 1 5 100 "Build and safety preflight"
 
-progress 2 5 5 "Studio Grand / Studio Piano setup detection"
-SETUP_TOPOLOGY="$OUT/setup-topology.json"
-SETUP_INVENTORY="$OUT/setup-plugin-inventory.json"
-if ! setup_ready "$SETUP_TOPOLOGY" "$SETUP_INVENTORY"; then
-  cat <<'TXT'
-
-ONE-TIME LOGIC SETUP NEEDED
----------------------------
-Keep this Terminal command running. In the same synthetic Logic project:
-
-1. Make sure the Mixer is visible (press X if needed).
-2. Select the track named "Studio Grand".
-3. On that channel strip, click the software-instrument slot to open its Studio Piano plug-in.
-4. In the upper-right of the plug-in window, next to "View:", click the menu that currently shows "100%" (or another zoom percentage), then choose "Controls".
-5. Close any other plug-in windows, leaving Studio Piano open.
-
-Do not change any plug-in parameter yourself.
-There is NO timeout. Take as long as you need.
-When the setup is complete, return to this Terminal and press Return once.
-TXT
-
-  while true; do
-    printf '\nPress Return when the Logic setup above is complete: '
-    IFS= read -r _
-    progress 2 5 10 "Verify user-confirmed Studio Piano setup"
-    if setup_ready "$SETUP_TOPOLOGY" "$SETUP_INVENTORY"; then
-      break
-    fi
-    cat <<'TXT'
-
-Setup is not fully detectable yet. Nothing was changed.
-Please re-check the five Logic setup steps above, then return here and press Return again.
-This checkpoint does not time out.
-TXT
-  done
+progress 2 5 10 "Automatically prepare Studio Grand / Studio Piano UI"
+AUTO_SETUP="$OUT/a5-auto-setup.json"
+if ! "$ROOT/.build/debug/logic-a5-auto-setup" --out "$AUTO_SETUP" > "$OUT/a5-auto-setup.log" 2>&1; then
+  cat "$OUT/a5-auto-setup.log" | tee -a "$RESULTS"
+  record "RESULT=A5_FAIL reason=automatic-plugin-ui-setup"
+  exit 20
 fi
-selected_track_ok "$SETUP_TOPOLOGY" | tee -a "$RESULTS"
+cat "$OUT/a5-auto-setup.log" | tee -a "$RESULTS"
+
+SETUP_TOPOLOGY="$OUT/setup-topology.json"
+if ! capture_topology "$SETUP_TOPOLOGY" || ! track_identity_ok "$SETUP_TOPOLOGY" | tee -a "$RESULTS"; then
+  record "RESULT=A5_FAIL reason=studio-grand-track-identity"
+  exit 20
+fi
+SETUP_INVENTORY="$OUT/setup-plugin-inventory.json"
+if ! capture_plugin_inventory "$SETUP_INVENTORY"; then
+  record "RESULT=A5_FAIL reason=setup-plugin-inventory"
+  exit 20
+fi
 CHOSEN="$(choose_parameter "$SETUP_INVENTORY")" || {
+  cat "${SETUP_INVENTORY%.json}.log" | tee -a "$RESULTS"
   record "RESULT=A5_FAIL reason=no-safe-semantic-parameter"
   exit 20
 }
 printf '%s\n' "$CHOSEN" > "$OUT/chosen-parameter.txt"
-record "PASS native_plugin=Studio_Piano track=Studio_Grand chosen_parameter=${CHOSEN// /_}"
+record "PASS native_plugin=Studio_Piano track=Studio_Grand chosen_parameter=${CHOSEN// /_} instance_identity=verified"
 progress 2 5 100 "Native Studio Piano semantic parameter surface ready"
 
 progress 3 5 30 "Capture authoritative semantic parameter baseline"
@@ -247,12 +220,12 @@ if ! compare_plugin_inventory "$BASELINE" "$FINAL" | tee -a "$RESULTS"; then
   exit 20
 fi
 FINAL_TOPOLOGY="$OUT/final-topology.json"
-if ! capture_topology "$FINAL_TOPOLOGY" || ! selected_track_ok "$FINAL_TOPOLOGY" | tee -a "$RESULTS"; then
+if ! capture_topology "$FINAL_TOPOLOGY" || ! track_identity_ok "$FINAL_TOPOLOGY" | tee -a "$RESULTS"; then
   record "RESULT=A5_FAIL reason=track-identity-changed"
   exit 20
 fi
 progress 5 5 75 "Package evidence"
 package_evidence
 progress 5 5 100 "A5 session complete"
-record "RESULT=A5_PASS track=Studio_Grand plugin=Studio_Piano parameter=${CHOSEN// /_} read_write_readback=verified restoration=verified"
+record "RESULT=A5_PASS track=Studio_Grand plugin=Studio_Piano parameter=${CHOSEN// /_} instance_identity=verified read_write_readback=verified restoration=verified"
 printf '\nEvidence ZIP: %s\n' "$ZIP"

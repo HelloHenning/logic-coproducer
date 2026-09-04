@@ -18,7 +18,8 @@ let package = Package(
         .executable(name: "logic-external-midi-actor", targets: ["LogicExternalMIDIActor"]),
         .executable(name: "logic-surface-explorer", targets: ["LogicSurfaceExplorer"]),
         .executable(name: "logic-mcu-bridge", targets: ["LogicMCUBridge"]),
-        .executable(name: "logic-midi-smoke-client", targets: ["LogicMIDISmokeClient"])
+        .executable(name: "logic-midi-smoke-client", targets: ["LogicMIDISmokeClient"]),
+        .executable(name: "logic-a5-auto-setup", targets: ["LogicA5AutoSetup"])
     ],
     targets: [
         .executableTarget(
@@ -68,6 +69,10 @@ let package = Package(
         .executableTarget(
             name: "LogicMIDISmokeClient",
             path: "Sources/LogicMIDISmokeClient"
+        ),
+        .executableTarget(
+            name: "LogicA5AutoSetup",
+            path: "Sources/LogicA5AutoSetup"
         )
     ]
 )
