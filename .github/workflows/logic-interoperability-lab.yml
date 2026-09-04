@@ -22,3 +22,66 @@ jobs:
         run: swift build
       - name: Shell syntax
         run: bash -n Scripts/*.sh
+      - name: CoreMIDI bridge smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          TMP="$(mktemp -d)"
+          COMMANDS="$TMP/commands.txt"
+          STATUS="$TMP/status.json"
+          EVENTS="$TMP/events.jsonl"
+          LOG="$TMP/bridge.log"
+          : > "$COMMANDS"
+          .build/debug/logic-mcu-bridge --commands "$COMMANDS" --status "$STATUS" --events "$EVENTS" > "$LOG" 2>&1 &
+          PID=$!
+          cleanup() {
+            if kill -0 "$PID" 2>/dev/null; then
+              printf 'QUIT\n' >> "$COMMANDS" || true
+              sleep 0.2
+              kill "$PID" 2>/dev/null || true
+            fi
+            cat "$LOG" || true
+          }
+          trap cleanup EXIT
+
+          for _ in $(seq 1 80); do
+            if [[ -f "$STATUS" ]] && python3 - "$STATUS" <<'PY'
+import json,sys
+try:
+    print('yes' if json.load(open(sys.argv[1])).get('ready') else 'no')
+except Exception:
+    print('no')
+PY
+            then
+              READY="$(python3 - "$STATUS" <<'PY'
+import json,sys
+try: print('yes' if json.load(open(sys.argv[1])).get('ready') else 'no')
+except Exception: print('no')
+PY
+)"
+              [[ "$READY" == "yes" ]] && break
+            fi
+            sleep 0.1
+          done
+
+          kill -0 "$PID"
+          .build/debug/logic-surface-explorer midi-endpoints --out "$TMP/endpoints.json"
+          grep -q 'CoProducer MCU To Logic' "$TMP/endpoints.json"
+          grep -q 'CoProducer MCU From Logic' "$TMP/endpoints.json"
+
+          .build/debug/logic-midi-smoke-client
+          sleep 0.3
+          kill -0 "$PID"
+
+          COUNT="$(python3 - "$STATUS" <<'PY'
+import json,sys
+print(int(json.load(open(sys.argv[1])).get('hostPacketCount',0)))
+PY
+)"
+          test "$COUNT" -gt 0
+          printf 'QUIT\n' >> "$COMMANDS"
+          for _ in $(seq 1 40); do
+            kill -0 "$PID" 2>/dev/null || break
+            sleep 0.1
+          done
+          ! kill -0 "$PID" 2>/dev/null
