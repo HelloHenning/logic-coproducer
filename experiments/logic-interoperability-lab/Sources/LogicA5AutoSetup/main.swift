@@ -48,7 +48,7 @@ private enum AX {
     }
 }
 
-private struct Candidate: Codable {
+struct Candidate: Codable {
     let path: String
     let role: String?
     let title: String?
@@ -61,7 +61,7 @@ private struct Candidate: Codable {
     let actions: [String]
 }
 
-private struct Ref {
+struct Ref {
     let candidate: Candidate
     let element: AXUIElement
 }
@@ -93,7 +93,7 @@ private final class Walker {
                 value: AX.simple(element),
                 valueDescription: AX.simple(element, "AXValueDescription"),
                 enabled: AX.bool(element, kAXEnabledAttribute),
-                visible: AX.bool(element, kAXVisibleAttribute),
+                visible: AX.bool(element, "AXVisible"),
                 selected: AX.bool(element, kAXSelectedAttribute),
                 actions: AX.actions(element)
             ), element: element))
@@ -355,6 +355,7 @@ var windowTitle: String?
 var semantic: [String] = []
 var numeric: [String] = []
 
+@MainActor
 func finish(_ result: String, _ reason: String?, code: Int32) -> Never {
     let evidence = SetupEvidence(
         schema: "logic-coproducer-a5-auto-setup/1.0",
