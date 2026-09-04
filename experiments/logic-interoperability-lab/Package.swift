@@ -17,7 +17,8 @@ let package = Package(
         .executable(name: "logic-blind-diff", targets: ["LogicBlindDiff"]),
         .executable(name: "logic-external-midi-actor", targets: ["LogicExternalMIDIActor"]),
         .executable(name: "logic-surface-explorer", targets: ["LogicSurfaceExplorer"]),
-        .executable(name: "logic-mcu-bridge", targets: ["LogicMCUBridge"])
+        .executable(name: "logic-mcu-bridge", targets: ["LogicMCUBridge"]),
+        .executable(name: "logic-midi-smoke-client", targets: ["LogicMIDISmokeClient"])
     ],
     targets: [
         .executableTarget(
@@ -63,6 +64,10 @@ let package = Package(
         .executableTarget(
             name: "LogicMCUBridge",
             path: "Sources/LogicMCUBridge"
+        ),
+        .executableTarget(
+            name: "LogicMIDISmokeClient",
+            path: "Sources/LogicMIDISmokeClient"
         )
     ]
 )
